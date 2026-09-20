@@ -13,6 +13,7 @@ services:
       - ./db/migrations/0001_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
       - ./db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
       - ./db/migrations/0002_pronunciation_attempts.sql:/docker-entrypoint-initdb.d/03_pronunciation.sql:ro
+      - ./db/migrations/0003_enable_rls.sql:/docker-entrypoint-initdb.d/04_enable_rls.sql:ro
 
 volumes:
   pgdata:
