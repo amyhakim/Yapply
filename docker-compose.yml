@@ -6,12 +6,14 @@ services:
       POSTGRES_PASSWORD: app
       POSTGRES_DB: langgame
     ports:
-      - "5432:5432"
+      - "${YAPPLY_POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Init scripts run only on first start with an empty volume.
       - ./db/migrations/0001_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
       - ./db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+      - ./db/migrations/0002_pronunciation_attempts.sql:/docker-entrypoint-initdb.d/03_pronunciation.sql:ro
+      - ./db/migrations/0003_enable_rls.sql:/docker-entrypoint-initdb.d/04_enable_rls.sql:ro
 
 volumes:
   pgdata:

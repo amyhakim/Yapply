@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import '@livekit/components-styles';
 import '@fontsource/montserrat/500.css';
 import '@fontsource/montserrat/600.css';
 import '@fontsource/montserrat/700.css';

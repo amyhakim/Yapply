@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { RoomLobby } from '@/components/RoomLobby';
 import { ArrowRight, AudioLines, Camera, CameraOff, Check, ChevronDown, ChevronRight, CircleHelp, Flag, Heart, Lightbulb, Maximize2, MessageCircle, Mic, MicOff, MoreHorizontal, PhoneOff, Settings2, ShieldCheck, Sparkles, Star, Volume2, X } from 'lucide-react';
 
 export default function Home() {
@@ -26,6 +27,7 @@ export default function Home() {
     </header>
     <main>
       <div className="page-heading"><div><div className="eyebrow"></div><h1>Hola! <span>Learn Spanish</span></h1><p>Practice your Spanish through conversation.</p></div><span className="session-label"><span className="little-dot" /> FRIEND PRACTICE <span className="demo-label">DEMO</span></span></div>
+      <RoomLobby />
       <section className="room" aria-label="Speaking practice room">
         <div className="room-top"><div className="language"><span className="flag">🇪🇸</span><strong>Spanish</strong><span className="level">B1 · Intermediate</span></div><div className={`timer ${seconds <= 20 ? 'urgent' : ''}`}><span className="timer-dot" />{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}<span> / 2:00</span></div><button className="icon-button" aria-label="About this session" onClick={() => setModal('help')}><MoreHorizontal size={23}/></button></div>
         <div className="challenge"><div className="challenge-icon"><Sparkles size={28}/></div><div className="challenge-copy"><div className="eyebrow">YOUR CONVERSATION CHALLENGE</div><h2>Make them fall in love with your hometown.</h2><p>Tell your partner what makes it special. A hidden gem? The food? Your people?</p><div className="bonus-row"><span><Star size={14}/> BONUS POINTS</span><span className="bonus"><Check size={13}/> Use the past tense</span><span className="bonus"><Check size={13}/> Ask 2 follow-up questions</span></div></div><span className="challenge-doodle" aria-hidden="true">✿</span></div>
