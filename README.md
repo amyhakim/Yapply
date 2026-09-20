@@ -14,7 +14,14 @@ The database init scripts run only when the Docker volume is new. If you already
 ```sh
 docker compose exec -T postgres psql -U app -d langgame < db/migrations/0002_pronunciation_attempts.sql
 docker compose exec -T postgres psql -U app -d langgame < db/seed.sql
+docker compose exec -T postgres psql -U app -d langgame < db/migrations/0003_enable_rls.sql
 ```
+
+For a new Supabase database, use its SQL Editor to run `db/migrations/0001_init.sql`,
+`db/migrations/0002_pronunciation_attempts.sql`, `db/seed.sql`, and
+`db/migrations/0003_enable_rls.sql` in that order. The last migration blocks
+Supabase's `anon` and `authenticated` API roles from accessing the app's tables;
+the server continues to use its direct PostgreSQL connection.
 
 ## What the integration does
 
