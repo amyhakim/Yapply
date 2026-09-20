@@ -32,8 +32,8 @@ export function RoomLobby() {
 
   return <section className="room-lobby" aria-label="Play with a friend" aria-busy={busy}>
     <div className="lobby-intro"><span className="eyebrow">READY FOR A REAL CONVERSATION?</span>
-      <h2>Bring a friend. Find your voice.</h2>
-      <p>Create a private room or enter a friend’s code. You choose when to enable your camera and microphone.</p>
+      <h2>Grab a friend and start chatting!</h2>
+      <p>Create a private room or enter a friend’s code. When ready, enable your microphone, and camera for a face-to-face experience.</p>
     </div>
     <div className="lobby-forms">
       <form onSubmit={event => void enter(event, 'create')}>
@@ -52,6 +52,6 @@ export function RoomLobby() {
     </div>
     {busy && <p role="status">Opening your room…</p>}
     {error && <p className="api-error" role="alert">{error}</p>}
-    <p className="lobby-note">Guest access stays in this browser for 30 days. The interface below is a separate demo.</p>
+    <p className="lobby-note">Guest access stays in this browser for 30 days. Prefer practicing on your own? Try the solo challenge below.</p>
   </section>;
 }

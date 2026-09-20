@@ -1,57 +1,142 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RoomLobby } from '@/components/RoomLobby';
-import { ArrowRight, AudioLines, Camera, CameraOff, Check, ChevronDown, ChevronRight, CircleHelp, Flag, Heart, Lightbulb, Maximize2, MessageCircle, Mic, MicOff, MoreHorizontal, PhoneOff, Settings2, ShieldCheck, Sparkles, Star, Volume2, X } from 'lucide-react';
+import { ArrowRight, AudioLines, Check, Heart, Lightbulb, Maximize2, Mic, MicOff, MoreHorizontal, Square, Sparkles, Star } from 'lucide-react';
 
 export default function Home() {
+  const [status, setStatus] = useState<'idle' | 'requesting' | 'recording' | 'done'>('idle');
+  const [seconds, setSeconds] = useState(30);
   const [muted, setMuted] = useState(false);
-  const [camera, setCamera] = useState(true);
-  const [captions, setCaptions] = useState(false);
   const [hint, setHint] = useState(false);
-  const [seconds, setSeconds] = useState(120);
-  const [playing, setPlaying] = useState(false);
-  const [ended, setEnded] = useState(false);
-  const [modal, setModal] = useState<'settings' | 'report' | 'help' | null>(null);
-  const [reported, setReported] = useState(false);
+  const [help, setHelp] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [sound, setSound] = useState(true);
-  useEffect(() => { if (!playing) return; const timer = setInterval(() => setSeconds(s => { if (s <= 1) { setPlaying(false); setEnded(true); return 0; } return s - 1; }), 1000); return () => clearInterval(timer); }, [playing]);
-  useEffect(() => { const listener = (e: KeyboardEvent) => { if(e.key === 'Escape') { setModal(null); setExpanded(false); } }; window.addEventListener('keydown', listener); return () => window.removeEventListener('keydown', listener); }, []);
-  function restart() { setSeconds(120); setEnded(false); setPlaying(true); }
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [completed, setCompleted] = useState(false);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const url = useRef<string | null>(null);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mounted = useRef(false);
+  const requesting = useRef(false);
+
+  function stop() {
+    if (timer.current) clearInterval(timer.current);
+    timer.current = null;
+    if (recorder.current?.state !== 'inactive') recorder.current?.stop();
+    stream.current?.getTracks().forEach(track => track.stop());
+    stream.current = null;
+    if (mounted.current) { setStatus('done'); setMuted(false); }
+  }
+
+  useEffect(() => {
+    mounted.current = true;
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setExpanded(false); };
+    window.addEventListener('keydown', escape);
+    return () => {
+      mounted.current = false;
+      if (timer.current) clearInterval(timer.current);
+      if (recorder.current) {
+        recorder.current.onstop = null;
+        recorder.current.ondataavailable = null;
+        recorder.current.onerror = null;
+        if (recorder.current.state !== 'inactive') recorder.current.stop();
+      }
+      stream.current?.getTracks().forEach(track => track.stop());
+      if (url.current) URL.revokeObjectURL(url.current);
+      window.removeEventListener('keydown', escape);
+    };
+  }, []);
+
+  async function start() {
+    if (requesting.current || recorder.current?.state === 'recording') return;
+    setError(null);
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setError('Recording is unavailable in this browser. Try a current browser on HTTPS or localhost.');
+      return;
+    }
+    requesting.current = true;
+    setStatus('requesting');
+    try {
+      const input = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mounted.current) { input.getTracks().forEach(track => track.stop()); return; }
+      stream.current = input;
+      const capture = new MediaRecorder(input);
+      recorder.current = capture;
+      const chunks: Blob[] = [];
+      capture.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+      capture.onstop = () => {
+        if (!mounted.current) return;
+        const blob = new Blob(chunks, { type: capture.mimeType || chunks[0]?.type || 'audio/webm' });
+        if (blob.size) {
+          url.current = URL.createObjectURL(blob);
+          setRecordingUrl(url.current);
+        } else setError('No recording was captured. Check your microphone and try again.');
+      };
+      capture.onerror = () => { setError('Recording was interrupted. Please try again.'); stop(); };
+      capture.start();
+      if (url.current) URL.revokeObjectURL(url.current);
+      url.current = null;
+      setRecordingUrl(null);
+      setSeconds(30); setCompleted(false); setMuted(false); setStatus('recording');
+      const deadline = performance.now() + 30_000;
+      timer.current = setInterval(() => {
+        const left = Math.max(0, Math.ceil((deadline - performance.now()) / 1000));
+        setSeconds(left);
+        if (left === 0) { setCompleted(true); stop(); }
+      }, 100);
+    } catch (caught) {
+      stream.current?.getTracks().forEach(track => track.stop());
+      stream.current = null;
+      if (mounted.current) {
+        setStatus('idle');
+        setError(caught instanceof DOMException && caught.name === 'NotAllowedError'
+          ? 'Microphone access was not allowed. Enable it in your browser’s site settings, then try again.'
+          : 'Could not access your microphone. Check that it is connected and available, then try again.');
+      }
+    } finally { requesting.current = false; }
+  }
+
+  function toggleMute() {
+    const next = !muted;
+    stream.current?.getAudioTracks().forEach(track => { track.enabled = !next; });
+    setMuted(next);
+  }
+  const playing = status === 'recording';
+
   return <div className="app-shell">
     <header className="header">
       <a className="wordmark" href="/" aria-label="Yapply home">yapply<span className="logo-flower">✳</span></a>
-      <div className="header-center"><span className="little-dot" />Boost your language skills</div>
-      <div className="profile"><span className="streak"><span>✦</span> 7 day streak</span><span className="profile-avatar">J<span /></span></div>
+      <div className="header-center"><span className="little-dot"/>Boost your language skills</div>
+      <div className="profile"><span className="streak"><span>✦</span> Welcome back</span><span className="profile-avatar">Y<span/></span></div>
     </header>
     <main>
-      <div className="page-heading"><div><div className="eyebrow"></div><h1>Hola! <span>Learn Spanish</span></h1><p>Practice your Spanish through conversation.</p></div><span className="session-label"><span className="little-dot" /> FRIEND PRACTICE <span className="demo-label">DEMO</span></span></div>
-      <RoomLobby />
-      <section className="room" aria-label="Speaking practice room">
-        <div className="room-top"><div className="language"><span className="flag">🇪🇸</span><strong>Spanish</strong><span className="level">B1 · Intermediate</span></div><div className={`timer ${seconds <= 20 ? 'urgent' : ''}`}><span className="timer-dot" />{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}<span> / 2:00</span></div><button className="icon-button" aria-label="About this session" onClick={() => setModal('help')}><MoreHorizontal size={23}/></button></div>
-        <div className="challenge"><div className="challenge-icon"><Sparkles size={28}/></div><div className="challenge-copy"><div className="eyebrow">YOUR CONVERSATION CHALLENGE</div><h2>Make them fall in love with your hometown.</h2><p>Tell your partner what makes it special. A hidden gem? The food? Your people?</p><div className="bonus-row"><span><Star size={14}/> BONUS POINTS</span><span className="bonus"><Check size={13}/> Use the past tense</span><span className="bonus"><Check size={13}/> Ask 2 follow-up questions</span></div></div><span className="challenge-doodle" aria-hidden="true">✿</span></div>
+      <div className="page-heading"><div><h1>Hola! <span>Learn Spanish</span></h1><p>Strengthen your Spanish skills with daily practice.</p></div><span className="session-label"><span className="little-dot"/> SOLO PRACTICE <span className="demo-label">30 SECONDS</span></span></div>
+      <RoomLobby/>
+      <section className="room solo-room" aria-label="Solo 30-second speaking challenge">
+        <div className="room-top"><div className="language"><span className="flag">🇪🇸</span><strong>Spanish</strong><span className="level">Solo challenge</span></div><div className={`timer ${seconds <= 5 ? 'urgent' : ''}`} aria-label={`${seconds} seconds remaining`}><span className="timer-dot"/>0:{String(seconds).padStart(2, '0')}<span> / 0:30</span></div><button className="icon-button" aria-label="About solo practice" aria-expanded={help} onClick={() => setHelp(!help)}><MoreHorizontal size={23}/></button></div>
+        {help && <p className="solo-help">Start when you’re ready, allow your microphone, and speak for 30 seconds. Listen back afterward. Your audio stays in this tab and is discarded when you retry or leave. There is no AI partner or automatic scoring.</p>}
+        <div className="challenge"><div className="challenge-icon"><Sparkles size={28}/></div><div className="challenge-copy"><div className="eyebrow">YOUR 30-SECOND SPEAKING CHALLENGE</div><h2>Make us fall in love with your hometown.</h2><p>Describe what makes it special. A hidden gem? The delicious food? </p><div className="bonus-row"><span><Star size={14}/> TRY TO INCLUDE</span><span className="bonus"><Check size={13}/> One favorite place</span><span className="bonus"><Check size={13}/> A reason you love it</span></div></div><span className="challenge-doodle" aria-hidden="true">✿</span></div>
+        {error && <p className="api-error solo-error" role="alert">{error}</p>}
         <div className="call-grid">
-          <div className={`partner-video ${expanded ? 'expanded' : ''}`}>
-    
-            <div className="video-shade"/>
-            <div className="video-top"><span className="live-badge"><span/> {playing ? 'PRACTICE IN PROGRESS' : 'PREVIEW ROOM'}</span><button className="glass-button" aria-label={expanded ? 'Minimize partner video' : 'Expand partner video'} onClick={() => setExpanded(!expanded)}><Maximize2 size={18}/></button></div>
-            <div className="hello-sticker">¡Hola! <span>✦</span></div>
-            {!playing && !ended && <button className="start-button" onClick={() => setPlaying(true)}>Start practice demo <ArrowRight size={17}/></button>}
-            {ended && <div className="end-overlay"><div className="end-flower">✿</div><h2>Great work!</h2><p>Demo complete. Real feedback will appear<br/>once live conversations are connected.</p><button className="primary-button" onClick={restart}>Practice again <ArrowRight size={17}/></button></div>}
-            {captions && !ended && <div className="captions">Sample caption: “¿Qué te gusta de tu ciudad?”</div>}
-            <div className="video-bottom"><div className="partner-name">Alex <span>🇲🇽</span><small>Native Spanish speaker <span>·</span> Learning English</small></div><div className="audio-badge"><AudioLines size={21}/></div></div>
+          <div className={`partner-video solo-stage ${expanded ? 'expanded' : ''}`}>
+            <div className="video-top"><span className="live-badge"><span/>{playing ? (muted ? 'MICROPHONE MUTED' : 'RECORDING LOCALLY') : status === 'done' ? 'PRACTICE FINISHED' : 'YOUR MOMENT TO SPEAK'}</span><button className="glass-button" aria-label={expanded ? 'Minimize challenge' : 'Expand challenge'} onClick={() => setExpanded(!expanded)}><Maximize2 size={18}/></button></div>
+            <div className="solo-center">
+              <span className="solo-flower" aria-hidden="true">✿</span>
+              {status === 'done' ? <><h2>{completed ? '30 seconds. One step forward.' : 'Every little practice counts.'}</h2><p>Listen back. Did you describe a place and explain why you love it?</p>{recordingUrl && <audio controls src={recordingUrl} aria-label="Listen to your speaking practice"/>}<p className="solo-note">Self-review only · no automatic score</p><button className="primary-button" onClick={() => void start()}>Try again <ArrowRight size={17}/></button></>
+                : <><h2>{playing ? 'Your hometown, in your words.' : 'Show us what you got.'}</h2><p>{playing ? 'Keep going. A pause is okay. Progress over perfection.' : 'Speak in Spanish, then listen back to your recording.'}</p>{!playing && <button className="primary-button" disabled={status === 'requesting'} onClick={() => void start()}>{status === 'requesting' ? 'Waiting for microphone permission…' : 'Start 30-second challenge'}<ArrowRight size={17}/></button>}{playing && <div className="solo-countdown" aria-hidden="true">{seconds}<small>seconds left</small></div>}</>}
+            </div>
+            <div className="video-bottom"><div className="partner-name">Your speaking space<small>No partner needed <span>·</span> Audio stays in this tab</small></div><div className="audio-badge"><AudioLines size={21}/></div></div>
           </div>
           <aside className="side-panel">
-            <div className="self-video">{camera ? <img className="portrait" src="null" alt=""/> : <div className="camera-placeholder"><CameraOff size={32}/><span>Your camera is off</span></div>}<div className="video-shade"/><span className="self-tag">You <span>· Your Name</span></span><span className="self-mic">{muted ? <MicOff size={17}/> : <Mic size={17}/>}</span><span className="preview-tag">SAMPLE PREVIEW</span></div>
-            <div className="hint-card"><div className="hint-top"><span className="bulb"><Lightbulb size={23}/></span><span className="tiny-sparkle">✧</span></div><h3>A little stuck?</h3><p>{hint ? '“Mi lugar favorito es…” Tell Alex about a place you loved visiting, then ask about his hometown.' : 'Every great conversation starts with a little curiosity.'}</p><button onClick={() => setHint(!hint)}>{hint ? 'Hide conversation starter' : 'Give me a conversation starter'}<ArrowRight size={17}/></button></div>
+            <div className="self-video solo-mic-card"><div className="camera-placeholder">{muted ? <MicOff size={32}/> : <Mic size={32}/>}<span>{playing ? (muted ? 'Microphone muted' : 'Your microphone is on') : 'Your voice takes the spotlight'}</span></div><span className="self-tag">You</span><span className="preview-tag">AUDIO ONLY</span></div>
+            <div className="hint-card"><div className="hint-top"><span className="bulb"><Lightbulb size={23}/></span><span className="tiny-sparkle">✧</span></div><h3>A little stuck?</h3><p>{hint ? '“Mi ciudad se llama… Mi lugar favorito es… Me encanta porque…” Start with your town’s name, then describe your favorite place.' : 'Start with one place you love. Tell us what makes it special.'}</p><button onClick={() => setHint(!hint)}>{hint ? 'Hide speaking starter' : 'Give me a speaking starter'}<ArrowRight size={17}/></button></div>
             <div className="encouragement"><Heart size={17}/><p>Progress over perfection.<br/><strong>You’ve got this.</strong></p></div>
           </aside>
         </div>
-        <div className="controls-bar"><div className="connection"><span className="signal"><i/><i/><i/></span><div>Demo room<small>No camera or mic connected</small></div></div><div className="call-controls"><button className={`control ${muted ? 'selected' : ''}`} onClick={() => setMuted(!muted)} aria-pressed={muted}><span>{muted ? <MicOff/> : <Mic/>}</span>{muted ? 'Unmute' : 'Mute'}</button><button className={`control ${!camera ? 'selected' : ''}`} onClick={() => setCamera(!camera)} aria-pressed={!camera}><span>{camera ? <Camera/> : <CameraOff/>}</span>Camera</button><button className={`control ${captions ? 'selected' : ''}`} onClick={() => setCaptions(!captions)} aria-pressed={captions}><span><MessageCircle/></span>Captions</button><button className="control" onClick={() => setModal('settings')}><span><Settings2/></span>Settings</button><span className="control-divider"/><button className="control leave" onClick={() => { setPlaying(false); setEnded(true); }}><span><PhoneOff/></span>Leave</button></div><button className="report-button" onClick={() => { setReported(false); setModal('report'); }}><Flag size={14}/> Report</button></div>
+        <div className="controls-bar"><div className="connection"><span className="signal"><i/><i/><i/></span><div>Solo practice<small>Private to this tab</small></div></div><div className="call-controls"><button className={`control ${muted ? 'selected' : ''}`} disabled={!playing} onClick={toggleMute} aria-pressed={muted}><span>{muted ? <MicOff/> : <Mic/>}</span>{muted ? 'Unmute' : 'Mute'}</button><button className={`control ${hint ? 'selected' : ''}`} onClick={() => setHint(!hint)} aria-pressed={hint}><span><Lightbulb/></span>Hint</button><span className="control-divider"/><button className="control leave" disabled={!playing} onClick={stop}><span><Square/></span>Finish early</button></div><span className="solo-footer-note">No camera needed</span></div>
       </section>
-     
     </main>
-    {modal && <div className="modal-backdrop" onClick={() => setModal(null)}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" onClick={e => e.stopPropagation()}><button autoFocus className="modal-close icon-button" aria-label="Close dialog" onClick={() => setModal(null)}><X/></button><span className="modal-flower">✳</span><h2 id="modal-title">{modal === 'settings' ? 'Make yourself comfortable.' : modal === 'report' ? 'Your comfort comes first.' : 'Welcome to your practice room.'}</h2>{modal === 'settings' ? <><p>This is a visual demo. Device selection will be available when live calls are connected.</p><button className="setting-row" onClick={() => setSound(!sound)}><span><Volume2 size={20}/> Demo sound preference</span><span className={`toggle ${sound ? 'on' : ''}`}/></button><button className="setting-row" onClick={() => setCaptions(!captions)}><span><MessageCircle size={20}/> Sample captions</span><span className={`toggle ${captions ? 'on' : ''}`}/></button></> : modal === 'report' ? <><p>{reported ? 'Demo report noted locally. No report was sent and no real user was blocked.' : 'In a live room, you can report inappropriate behavior and block a partner. This preview does not send reports.'}</p><button className="primary-button" onClick={() => setReported(true)} disabled={reported}>{reported ? 'Demo report noted' : 'Try report & block'}<ShieldCheck size={18}/></button></> : <><p>Try a two-minute challenge, reveal a conversation starter, and explore the call controls. The people and captions are samples; no media is captured.</p><button className="primary-button" onClick={() => { setModal(null); restart(); }}>Let’s practice <ArrowRight size={18}/></button></>}</section></div>}
   </div>;
 }

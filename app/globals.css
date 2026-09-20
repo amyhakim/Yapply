@@ -47,3 +47,20 @@
 .attempt p { margin: 4px 0; }
 @media(max-width:700px) { .lobby-forms { grid-template-columns: 1fr; } .room-lobby { padding: 20px; } .lobby-forms form { grid-template-columns: 1fr; } .live-page { padding: 0 14px 25px; } .live-call-grid .self-video { top: 15px; } .live-placeholder { min-height: 430px; padding-top: 150px; } .live-page .header > span { display: none; } .live-page .panel { padding: 18px; } }
 
+
+/* Solo speaking challenge, reusing the room layout. */
+.solo-stage { background: #747d49; }
+.solo-center { min-height: 390px; padding: 60px 30px 100px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--cream); gap: 13px; }
+.solo-center h2 { margin: 0; font-size: clamp(20px, 2vw, 29px); letter-spacing: -.7px; }
+.solo-center p { margin: 0; max-width: 420px; font-size: 12px; line-height: 1.8; }
+.solo-flower { color: #e7b6ae; font-size: 60px; line-height: 1; }
+.solo-center audio { width: min(100%, 340px); }
+.solo-center .solo-note { color: #e2e4c9; font-size: 10px; }
+.solo-countdown { font-size: 48px; font-weight: 800; color: #e4e7ba; }
+.solo-countdown small { display: block; font-size: 10px; }
+.solo-footer-note { flex: 1; text-align: right; font-size: 10px; color: #797c66; }
+.solo-help { padding: 0 24px; font-size: 12px; line-height: 1.8; }
+.solo-error { margin: 15px 23px; }
+.solo-mic-card { background: #abb275; }
+@media(max-width:700px) { .solo-room .partner-video { height: auto; min-height: 430px; } .solo-center { min-height: 430px; padding: 65px 18px 105px; } .solo-room .self-video { position: relative; inset: auto; width: 100%; height: 115px; margin-top: 13px; border: 0; } .solo-footer-note { display: none; } .solo-room .expanded { position: fixed; height: auto; overflow: auto; } }
+
