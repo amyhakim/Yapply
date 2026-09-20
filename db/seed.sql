@@ -18,3 +18,18 @@ INSERT INTO languages (code, name, native_name, azure_locale, enabled) VALUES
 ON CONFLICT (code) DO UPDATE
   SET name = EXCLUDED.name, native_name = EXCLUDED.native_name,
       azure_locale = EXCLUDED.azure_locale, enabled = EXCLUDED.enabled;
+
+INSERT INTO challenges
+  (slug, type, language_code, title, prompt, grader_notes, target_words)
+VALUES
+  ('pronunciation-es-a1', 'pronunciation_battle', 'es',
+   'Pronunciation Battle', 'El perro corre por el parque.',
+   'Assess the spoken phrase against the prompt with Azure Speech.',
+   ARRAY['perro', 'corre', 'parque']),
+  ('pronunciation-en-a1', 'pronunciation_battle', 'en',
+   'Pronunciation Battle', 'The little bird sings in the morning.',
+   'Assess the spoken phrase against the prompt with Azure Speech.',
+   ARRAY['little', 'bird', 'morning'])
+ON CONFLICT (slug) DO UPDATE SET
+  title = EXCLUDED.title, prompt = EXCLUDED.prompt,
+  grader_notes = EXCLUDED.grader_notes, target_words = EXCLUDED.target_words;
