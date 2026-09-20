@@ -148,7 +148,7 @@ test("grader failures are recorded, retried, and stop at the attempt limit", asy
   const db = await testDb();
   const m = await seedMatch(db);
   await talk(db, m);
-  const failing = new StubGrader(() => { throw new GraderError("Anthropic API error 529: overloaded", "api"); });
+  const failing = new StubGrader(() => { throw new GraderError("Gemini API error 503: overloaded", "api"); });
   const w = worker(db, failing, { SCORING_MAX_ATTEMPTS: 2 });
 
   assert.equal(await w.runOnce(), "failed");
