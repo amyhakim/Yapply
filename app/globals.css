@@ -64,3 +64,23 @@
 .solo-mic-card { background: #abb275; }
 @media(max-width:700px) { .solo-room .partner-video { height: auto; min-height: 430px; } .solo-center { min-height: 430px; padding: 65px 18px 105px; } .solo-room .self-video { position: relative; inset: auto; width: 100%; height: 115px; margin-top: 13px; border: 0; } .solo-footer-note { display: none; } .solo-room .expanded { position: fixed; height: auto; overflow: auto; } }
 
+
+/* Both room modes share the same grid and controls. */
+.practice-grid .self-video { background: #abb275; }
+.practice-grid .self-video .portrait { object-fit: cover; }
+.practice-controls .control:disabled { cursor: wait; }
+.friend-page .room-summary { display: flex; gap: 30px; flex-wrap: wrap; }
+.friend-invite { padding: 22px 24px 0; font-size: 12px; }
+.friend-invite strong { display: block; letter-spacing: 2px; margin-top: 6px; user-select: all; }
+.friend-page .friend-actions { padding: 0 24px 16px; font-size: 12px; }
+.friend-page .friend-actions:empty { display: none; }
+.friend-page .panel { background: var(--cream); border-radius: 20px; padding: 24px; margin: 22px 0; font-size: 13px; line-height: 1.8; }
+.friend-page .room > .panel { margin: 22px; background: #f4f3df; }
+.friend-page .panel button, .friend-actions button { padding: 12px 18px; border: 0; border-bottom: 3px solid #d75467; border-radius: 12px; background: var(--coral); color: white; font: inherit; font-weight: 700; }
+.friend-page .speech-panel { margin: 22px; background: #f4f3df; }
+.friend-page .error { color: #8b2837; padding: 12px 24px; }
+.friend-page .notice { padding: 20px 24px; }
+.friend-page .header > span, .friend-page .header > a:last-child { font-size: 12px; }
+.friend-page .room .solo-stage { min-height: 390px; }
+@media(max-width:700px) { .practice-grid .self-video { position: relative; inset: auto; width: 100%; height: 180px; margin-top: 13px; border: 0; } .friend-page .header > span { display: none; } .practice-controls .connection { display: block; flex-basis: 100%; text-align: center; } }
+

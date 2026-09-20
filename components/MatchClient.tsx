@@ -7,6 +7,7 @@ import { api } from "@/lib/client-api";
 import { SpeechCapture } from "./SpeechCapture";
 import { LiveCall } from "./LiveCall";
 import { MatchScore } from "./MatchScore";
+import { Sparkles } from 'lucide-react';
 
 type Match = {
   id: string; status: string; language_code: string; azure_locale: string | null;
@@ -28,6 +29,8 @@ export function MatchClient({ matchId }: { matchId: string }) {
   const [receivedPerf, setReceivedPerf] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const handleCallError = useCallback((caught: Error) => setError(caught.message), []);
+  const handleDisconnected = useCallback(() => setConnection(null), []);
 
   const refreshMatch = useCallback(async () => {
     const data = await api<{ match: Match }>(`/api/matches/${matchId}`);
@@ -45,10 +48,16 @@ export function MatchClient({ matchId }: { matchId: string }) {
     void refreshResults().catch(() => {});
     const poll = setInterval(() => {
       void refreshMatch().catch(() => {});
-      setClock(performance.now());
     }, 2_000);
     return () => clearInterval(poll);
   }, [refreshMatch, refreshResults]);
+
+  useEffect(() => {
+    if (match?.status !== "playing") return;
+    // Tick locally between server updates so the display counts every second.
+    const tick = setInterval(() => setClock(performance.now()), 1_000);
+    return () => clearInterval(tick);
+  }, [match?.status]);
 
   const connect = async () => {
     setBusy(true); setError(null);
@@ -95,25 +104,33 @@ export function MatchClient({ matchId }: { matchId: string }) {
   if (!match) return <main className="match-page live-page"><Link href="/">Back to lobby</Link><p>Loading match…</p>
     {error && <p className="error" role="alert">{error}</p>}</main>;
 
-  return <main className="match-page live-page">
+  return <div className="app-shell friend-page">
     <header className="header"><Link className="wordmark" href="/">yapply<span className="logo-flower">✳</span></Link><span>
       {match.language_code === "es" ? "Spanish" : "English"} · Private friend room</span><Link href="/">Back to lobby</Link></header>
-    <div className="match-heading">
+    <main>
+    <div className="page-heading">
       <div><p className="eyebrow">{match.status}</p><h1>Practice together</h1></div>
+      <span className="session-label"><span className="little-dot"/> FRIEND PRACTICE</span>
+    </div>
+    <section className="room solo-room" aria-label="Friend speaking challenge">
+    <div className="room-top"><div className="language"><strong>{match.language_code === 'es' ? 'Spanish' : 'English'}</strong><span className="level">Friend challenge</span></div>
       <span className="timer">{remaining === null ? "2:00" :
         `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`}</span>
     </div>
-    <section className="panel room-summary">
+    <section className="room-summary friend-invite">
       <div><span className="muted">Room code</span><strong>{match.room_code}</strong></div>
       <div><span className="muted">Players</span><strong>{match.participant_count} / 2</strong></div>
       <div><span className="muted">Your seat</span><strong>{match.seat}</strong></div>
     </section>
+    <div className="challenge"><div className="challenge-icon"><Sparkles size={28}/></div><div className="challenge-copy"><div className="eyebrow">YOUR SPEAKING CHALLENGE</div><h2>{match.challenge_prompt ?? 'Tell your partner about your hometown.'}</h2><p>Practice the phrase together, then keep the conversation going.</p></div><span className="challenge-doodle" aria-hidden="true">✿</span></div>
+    <div className="friend-actions">
     {match.status === "queued" && <p>Share the room code with a friend. The call opens while you wait.</p>}
     {match.status === "matched" && match.seat === 1 &&
       <button disabled={busy} onClick={() => void updateStatus("start")}>Start match</button>}
     {match.status === "matched" && match.seat === 2 && <p>Waiting for the room creator to start.</p>}
     {match.status === "playing" && <button className="secondary" disabled={busy}
       onClick={() => void updateStatus("end")}>End match</button>}
+    </div>
     {error && <p className="error" role="alert">{error}</p>}
     {match.status !== "complete" && !connection && <section className="panel">
       <h2>Ready to say hello?</h2><p>Join, then enable your microphone and camera with the call controls. Nothing is captured until you enable it.</p>
@@ -121,7 +138,7 @@ export function MatchClient({ matchId }: { matchId: string }) {
     </section>}
     {connection && match.status !== "complete" &&
       <LiveKitRoom token={connection.token} serverUrl={connection.url} connect audio={false} video={false}
-        onError={(caught) => setError(caught.message)} onDisconnected={() => setConnection(null)}>
+        onError={handleCallError} onDisconnected={handleDisconnected}>
         <LiveCall onLeave={() => { setConnection(null); if (match.status === "playing") void updateStatus("end"); }}/>
         {match.status === "playing" && match.started_at &&
           <SpeechCapture matchId={matchId} startedAt={match.started_at}
@@ -129,6 +146,7 @@ export function MatchClient({ matchId }: { matchId: string }) {
             prompt={match.challenge_prompt} onSaved={() => void refreshResults()} />}
       </LiveKitRoom>}
     {match.status === "complete" && <p className="notice">Match finished. Your pronunciation feedback is below.</p>}
+    </section>
     {match.status === "complete" && <MatchScore matchId={matchId}/>}
     <section className="panel">
       <h2>Your assessment results</h2>
@@ -147,5 +165,6 @@ export function MatchClient({ matchId }: { matchId: string }) {
           </article>)}
         </div>}
     </section>
-  </main>;
+    </main>
+  </div>;
 }

@@ -2,9 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { RoomLobby } from '@/components/RoomLobby';
+import { PracticeControls } from '@/components/PracticeControls';
+import { PracticeGrid } from '@/components/PracticeGrid';
+import { CameraPreview } from '@/components/CameraPreview';
+import { useLocalCamera } from '@/components/useLocalCamera';
 import { ArrowRight, AudioLines, Check, Heart, Lightbulb, Maximize2, Mic, MicOff, MoreHorizontal, Square, Sparkles, Star } from 'lucide-react';
 
 export default function Home() {
+  const camera = useLocalCamera();
   const [status, setStatus] = useState<'idle' | 'requesting' | 'recording' | 'done'>('idle');
   const [seconds, setSeconds] = useState(30);
   const [muted, setMuted] = useState(false);
@@ -22,6 +27,7 @@ export default function Home() {
   const requesting = useRef(false);
 
   function stop() {
+    camera.stop();
     if (timer.current) clearInterval(timer.current);
     timer.current = null;
     if (recorder.current?.state !== 'inactive') recorder.current?.stop();
@@ -118,8 +124,9 @@ export default function Home() {
         <div className="room-top"><div className="language"><span className="flag">🇪🇸</span><strong>Spanish</strong><span className="level">Solo challenge</span></div><div className={`timer ${seconds <= 5 ? 'urgent' : ''}`} aria-label={`${seconds} seconds remaining`}><span className="timer-dot"/>0:{String(seconds).padStart(2, '0')}<span> / 0:30</span></div><button className="icon-button" aria-label="About solo practice" aria-expanded={help} onClick={() => setHelp(!help)}><MoreHorizontal size={23}/></button></div>
         {help && <p className="solo-help">Start when you’re ready, allow your microphone, and speak for 30 seconds. Listen back afterward. Your audio stays in this tab and is discarded when you retry or leave. There is no AI partner or automatic scoring.</p>}
         <div className="challenge"><div className="challenge-icon"><Sparkles size={28}/></div><div className="challenge-copy"><div className="eyebrow">YOUR 30-SECOND SPEAKING CHALLENGE</div><h2>Make us fall in love with your hometown.</h2><p>Describe what makes it special. A hidden gem? The delicious food? </p><div className="bonus-row"><span><Star size={14}/> TRY TO INCLUDE</span><span className="bonus"><Check size={13}/> One favorite place</span><span className="bonus"><Check size={13}/> A reason you love it</span></div></div><span className="challenge-doodle" aria-hidden="true">✿</span></div>
-        {error && <p className="api-error solo-error" role="alert">{error}</p>}
-        <div className="call-grid">
+        {(error || camera.error) && <p className="api-error solo-error" role="alert">{error || camera.error}</p>}
+        {camera.busy && <p className="solo-help" role="status">Waiting for camera permission. Check your browser’s permission prompt.</p>}
+        <PracticeGrid hint={hint} onHint={() => setHint(!hint)} starter="Mi ciudad se llama… Mi lugar favorito es… Me encanta porque…" preview={<CameraPreview stream={camera.stream}/>} stage={
           <div className={`partner-video solo-stage ${expanded ? 'expanded' : ''}`}>
             <div className="video-top"><span className="live-badge"><span/>{playing ? (muted ? 'MICROPHONE MUTED' : 'RECORDING LOCALLY') : status === 'done' ? 'PRACTICE FINISHED' : 'YOUR MOMENT TO SPEAK'}</span><button className="glass-button" aria-label={expanded ? 'Minimize challenge' : 'Expand challenge'} onClick={() => setExpanded(!expanded)}><Maximize2 size={18}/></button></div>
             <div className="solo-center">
@@ -129,13 +136,8 @@ export default function Home() {
             </div>
             <div className="video-bottom"><div className="partner-name">Your speaking space<small>No partner needed <span>·</span> Audio stays in this tab</small></div><div className="audio-badge"><AudioLines size={21}/></div></div>
           </div>
-          <aside className="side-panel">
-            <div className="self-video solo-mic-card"><div className="camera-placeholder">{muted ? <MicOff size={32}/> : <Mic size={32}/>}<span>{playing ? (muted ? 'Microphone muted' : 'Your microphone is on') : 'Your voice takes the spotlight'}</span></div><span className="self-tag">You</span><span className="preview-tag">AUDIO ONLY</span></div>
-            <div className="hint-card"><div className="hint-top"><span className="bulb"><Lightbulb size={23}/></span><span className="tiny-sparkle">✧</span></div><h3>A little stuck?</h3><p>{hint ? '“Mi ciudad se llama… Mi lugar favorito es… Me encanta porque…” Start with your town’s name, then describe your favorite place.' : 'Start with one place you love. Tell us what makes it special.'}</p><button onClick={() => setHint(!hint)}>{hint ? 'Hide speaking starter' : 'Give me a speaking starter'}<ArrowRight size={17}/></button></div>
-            <div className="encouragement"><Heart size={17}/><p>Progress over perfection.<br/><strong>You’ve got this.</strong></p></div>
-          </aside>
-        </div>
-        <div className="controls-bar"><div className="connection"><span className="signal"><i/><i/><i/></span><div>Solo practice<small>Private to this tab</small></div></div><div className="call-controls"><button className={`control ${muted ? 'selected' : ''}`} disabled={!playing} onClick={toggleMute} aria-pressed={muted}><span>{muted ? <MicOff/> : <Mic/>}</span>{muted ? 'Unmute' : 'Mute'}</button><button className={`control ${hint ? 'selected' : ''}`} onClick={() => setHint(!hint)} aria-pressed={hint}><span><Lightbulb/></span>Hint</button><span className="control-divider"/><button className="control leave" disabled={!playing} onClick={stop}><span><Square/></span>Finish early</button></div><span className="solo-footer-note">No camera needed</span></div>
+        }/>
+        <PracticeControls cameraOn={!!camera.stream} cameraBusy={camera.busy} onCamera={() => void camera.toggle()} micOn={playing && !muted} micDisabled={!playing} onMic={toggleMute} hint={hint} onHint={() => setHint(!hint)} onFinish={stop} finishDisabled={!playing} finishLabel="Finish early" status="Solo practice · camera stays local"/>
       </section>
     </main>
   </div>;
