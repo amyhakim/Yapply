@@ -8,7 +8,7 @@ this service turns that into a score.
 Next.js app (browser-facing API)             backend/ (this service)
   guest sessions, rooms, LiveKit tokens        polls Postgres for finished matches
   Azure clips -> transcript_turns,             waits out late clips, then:
-    pronunciation_attempts/results               Claude grades grammar / vocabulary / conversation
+    pronunciation_attempts/results               Gemini grades grammar / vocabulary / conversation
                   \                              Azure data -> pronunciation + fluency
                    \____ Postgres ____/          combine (25/20/20/20/15), XP, feedback
                                                  write match_scores, feedback, XP, ratings
@@ -22,29 +22,30 @@ on a finished match means "score me".
 ```sh
 cd backend
 npm install
-cp .env.example .env      # set DATABASE_URL and ANTHROPIC_API_KEY
+cp .env.example .env      # set DATABASE_URL and GEMINI_API_KEY
 npm start                 # or `npm run dev` to restart on changes
 npm test                  # in-memory Postgres, no services or keys needed
 npm run typecheck
 ```
 
-`DATABASE_URL` is the same database as the app, with `db/migrations/0001` and `0002` and
+`DATABASE_URL` is the same database as the app, with `db/migrations/0001` to `0003` and
 `db/seed.sql` applied. Node 22.22+.
 
 | Variable | Default | |
 |---|---|---|
 | `DATABASE_URL` | required | |
-| `GRADER` | `anthropic` | `mock` gives **fake** scores, for local dev only |
-| `ANTHROPIC_API_KEY` | | or use `ant auth login`; the SDK finds either |
-| `GRADER_MODEL` | `claude-opus-5` | any Claude model id |
-| `GRADER_EFFORT` | `medium` | `low` to `max`; lower is faster and cheaper |
+| `GRADER` | `gemini` | `mock` gives **fake** scores, for local dev only |
+| `GEMINI_API_KEY` | required unless `GRADER=mock` | create one at https://aistudio.google.com/apikey |
+| `GRADER_MODEL` | `gemini-2.5-flash` | any Gemini model id that supports JSON-schema output |
+| `GRADER_THINKING` | unset | optional `minimal`/`low`/`medium`/`high`; only set it if the model supports thinking levels |
 | `SCORING_GRACE_SECS` | `35` | the app accepts clips for 30s after a match ends |
 | `SCORING_MAX_ATTEMPTS` | `3` | then it stops and leaves `scoring_error` |
 | `MIN_WORDS_TO_SCORE` | `5` | a player who said less is not scored |
 
-Latency: the design doc wants results in about 3 seconds. Opus at medium effort will
-usually be slower than that. If it matters, set `GRADER_MODEL` to a smaller model or drop
-`GRADER_EFFORT` to `low`. It is one env var and needs no code change.
+Latency: the design doc wants results in about 3 seconds. A Flash-Lite model
+(for example `gemini-2.5-flash-lite`) is the fastest option; it is one env var and needs
+no code change. The grader code lives in `src/scoring/gemini-grader.ts`; the prompt and
+output schema in `src/scoring/grader.ts` do not depend on any provider.
 
 ## What gets scored
 
@@ -52,11 +53,11 @@ Per player, from `design doc §6`:
 
 | Dimension | Weight | Source |
 |---|---|---|
-| Conversation | 25% | Claude |
+| Conversation | 25% | Gemini |
 | Fluency | 20% | Azure fluency; falls back to speaking pace if Azure gave none |
 | Pronunciation | 20% | Azure, duration-weighted over all of the player's clips |
-| Grammar | 20% | Claude |
-| Vocabulary | 15% | Claude |
+| Grammar | 20% | Gemini |
+| Vocabulary | 15% | Gemini |
 
 If Azure produced no pronunciation score, that dimension is dropped and the rest are
 renormalised, so nobody is scored as zero for a provider gap. The weights used are stored
@@ -87,8 +88,8 @@ on `complete`, so the schema's `processing -> results` states are left unused fo
 
 ## Reading the results
 
-Whoever builds the results screen can read a player's scores like this (the app needs a
-route for it; none exists yet):
+The Next.js app exposes a player's own score at `GET /api/matches/[id]/score` (see
+`lib/scores.ts`). Underneath, it reads:
 
 ```sql
 SELECT overall, conversation, fluency, pronunciation, grammar, vocabulary,
@@ -107,6 +108,5 @@ No `match_scores` row and `matches.scored_at` set means "not enough speech"; no 
 ## Not built yet
 
 Random matchmaking (Redis), AI opponents, ElevenLabs transcription, production auth,
-moderation, and the vocabulary graph (`new_words_attempted` stays 0). Server-side refusal
-fallbacks are not enabled on the grader: a refused transcript is recorded as a failure
-rather than re-run on another model.
+moderation, and the vocabulary graph (`new_words_attempted` stays 0). If Gemini blocks a
+transcript for policy reasons, it is recorded as a failure rather than re-run elsewhere.

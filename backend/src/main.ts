@@ -1,7 +1,8 @@
+import { GoogleGenAI } from "@google/genai";
 import { loadConfig } from "./config";
 import { pgDb } from "./db";
 import { log } from "./log";
-import { AnthropicGrader } from "./scoring/anthropic-grader";
+import { GeminiGrader } from "./scoring/gemini-grader";
 import { MockGrader } from "./scoring/mock-grader";
 import { ScoringWorker } from "./worker";
 
@@ -13,7 +14,7 @@ if (config.GRADER === "mock") {
 }
 const grader = config.GRADER === "mock"
   ? new MockGrader()
-  : new AnthropicGrader(config.GRADER_MODEL, config.GRADER_EFFORT);
+  : new GeminiGrader(config.GRADER_MODEL, config.GRADER_THINKING, new GoogleGenAI({ apiKey: config.GEMINI_API_KEY }));
 
 const worker = new ScoringWorker(db, grader, config, log);
 worker.start();
