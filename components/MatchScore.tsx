@@ -78,6 +78,12 @@ export function MatchScore({ matchId, endedAt, prompt, attempts }: {
       </div>
     </header>
 
+    {detailed?.matchResult && <p className={`notice match-outcome ${detailed.matchResult.outcome}`} role="status">
+      <strong>{{ win: 'You won!', loss: 'You lost', tie: 'It’s a tie' }[detailed.matchResult.outcome]}</strong>
+      {' '}The winner is decided by conversation score: {detailed.matchResult.yourScore} to {detailed.matchResult.opponentScore}.
+      {detailed.languagePenalty && <>
+        {' '}You lost {detailed.languagePenalty.points} points for speaking the wrong language in {detailed.languagePenalty.clips} {detailed.languagePenalty.clips === 1 ? 'clip' : 'clips'}.</>}</p>}
+
     <div className="report-kpis">
       <article><span className="kpi-icon coral"><Sparkles/></span><div><small>Unique words</small>
         <strong>{uniqueWords}</strong><p>distinct words used</p></div></article>

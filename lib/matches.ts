@@ -17,6 +17,47 @@ export interface MatchView {
   participant_count: number;
   room_code: string;
   challenge_prompt: string | null;
+  /** Set when the match ended early because of a rule (see EndReason), else null. */
+  end_reason: EndReason | null;
+  /** Seat of the player who caused the early end; null when nobody is to blame (a long pause). */
+  end_reason_seat: number | null;
+}
+
+// How long a match lasts once started. Set here rather than left to the column default so it does
+// not depend on which version of the schema a database was created with.
+export const MATCH_DURATION_SECS = 30;
+
+export type EndReason = "silent_mic" | "long_pause";
+
+/**
+ * Ends a playing match for both players and closes the call. When an early-end reason is given it
+ * is recorded, with the player responsible if there is one, so both screens can say what happened.
+ * Returns false if the match was not playing, e.g. the timer or the other player got there first.
+ */
+export async function endMatch(
+  matchId: string, early?: { reason: EndReason; userId?: string },
+): Promise<boolean> {
+  const room = await transaction(async (client) => {
+    const updated = await client.query<{ livekit_room: string }>(
+      `UPDATE matches SET status = 'complete', ended_at = now()
+        WHERE id = $1 AND status = 'playing' RETURNING livekit_room`,
+      [matchId],
+    );
+    if (!updated.rows[0]) return null;
+    if (early) {
+      await client.query(
+        `INSERT INTO challenge_events (match_id, participant_id, event_type, payload)
+         VALUES ($1,
+                 (SELECT p.id FROM match_participants p WHERE p.match_id = $1 AND p.user_id = $2::uuid),
+                 'match_ended_early', $3::jsonb)`,
+        [matchId, early.userId ?? null, JSON.stringify({ reason: early.reason })],
+      );
+    }
+    return updated.rows[0].livekit_room;
+  });
+  if (!room) return false;
+  await closeLiveKitRoom(room).catch(console.error);
+  return true;
 }
 
 export async function getMatch(matchId: string, userId: string): Promise<MatchView> {
@@ -38,7 +79,14 @@ export async function getMatch(matchId: string, userId: string): Promise<MatchVi
             now() AS server_now,
             m.started_at, m.ended_at, p.seat,
             (SELECT count(*)::int FROM match_participants WHERE match_id = m.id) AS participant_count,
-            i.room_code, c.prompt AS challenge_prompt
+            i.room_code, c.prompt AS challenge_prompt,
+            (SELECT e.payload->>'reason' FROM challenge_events e
+              WHERE e.match_id = m.id AND e.event_type = 'match_ended_early'
+              ORDER BY e.id DESC LIMIT 1) AS end_reason,
+            (SELECT ep.seat::int FROM challenge_events e
+               JOIN match_participants ep ON ep.id = e.participant_id
+              WHERE e.match_id = m.id AND e.event_type = 'match_ended_early'
+              ORDER BY e.id DESC LIMIT 1) AS end_reason_seat
        FROM matches m
        JOIN match_participants p ON p.match_id = m.id AND p.user_id = $2
        JOIN languages l ON l.code = m.language_code
@@ -50,9 +98,6 @@ export async function getMatch(matchId: string, userId: string): Promise<MatchVi
   if (!result.rows[0]) throw new ApiError(404, "Match not found");
   return result.rows[0];
 }
-
-// Set explicitly so existing databases with a 120-second default use the current rules.
-export const MATCH_DURATION_SECS = 30;
 
 export async function createMatch(userId: string, language: string): Promise<string> {
   if (!/^(en|es)$/.test(language)) throw new ApiError(400, "Choose English or Spanish");
