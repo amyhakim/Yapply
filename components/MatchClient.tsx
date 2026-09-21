@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ControlBar, LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
 import { api } from "@/lib/client-api";
+import { conversationScore } from "@/lib/conversation-score";
 import { SpeechCapture } from "./SpeechCapture";
 
 type Match = {
@@ -105,6 +106,8 @@ export function MatchClient({ matchId }: { matchId: string }) {
   if (!match) return <main className="match-page"><p>Loading match…</p>
     {error && <p className="error" role="alert">{error}</p>}</main>;
 
+  const score = conversationScore(attempts);
+
   return <main className="match-page">
     <header><Link className="brand" href="/">Yapply</Link><span>
       {match.language_code === "es" ? "Spanish" : "English"} voice room</span></header>
@@ -142,12 +145,18 @@ export function MatchClient({ matchId }: { matchId: string }) {
             finishCurrentRef={finishCurrentRef} />}
       </LiveKitRoom>}
     {match.status === "complete" && <p className="notice">Match finished. Your pronunciation feedback is below.</p>}
-    <section className="panel">
+    {match.status === "playing" &&
+      <p className="muted">Your results and conversation score appear when the match ends.</p>}
+    {match.status === "complete" && <section className="panel">
       <h2>Your assessment results</h2>
-      {attempts.length === 0 ? <p className="muted">{match.status === "complete"
-        ? checkingResults ? "No attempt saved yet. Checking for final pronunciation feedback…" :
-          "No pronunciation attempts were saved for this match. In your next match, start pronunciation analysis and speak before the match ends."
-        : "Results will appear after you speak."}</p> :
+      {score !== null && <div className="result">
+        <span className="eyebrow">Conversation score</span>
+        <p><strong>{score}</strong> / 100</p>
+        <p className="muted">The average of your fluency and accuracy scores.</p>
+      </div>}
+      {attempts.length === 0 ? <p className="muted">{checkingResults
+        ? "No attempt saved yet. Checking for final pronunciation feedback…" :
+        "No pronunciation attempts were saved for this match. In your next match, start pronunciation analysis and speak before the match ends."}</p> :
         <div className="attempts">{attempts.map((attempt) =>
           <article className="attempt" key={attempt.id}>
             <div><span className="eyebrow">{attempt.mode}</span><strong>
@@ -162,6 +171,6 @@ export function MatchClient({ matchId }: { matchId: string }) {
               attempt.notable_words.map((item) => `${item.word} /${item.phoneme}/`).join(", ")}</p>}
           </article>)}
         </div>}
-    </section>
+    </section>}
   </main>;
 }
