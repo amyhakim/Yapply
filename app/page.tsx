@@ -132,12 +132,12 @@ export default function Home() {
             <div className="solo-center">
               <span className="solo-flower" aria-hidden="true">✿</span>
               {status === 'done' ? <><h2>{completed ? '30 seconds. One step forward.' : 'Every little practice counts.'}</h2><p>Listen back. Did you describe a place and explain why you love it?</p>{recordingUrl && <audio controls src={recordingUrl} aria-label="Listen to your speaking practice"/>}<p className="solo-note">Self-review only · no automatic score</p><button className="primary-button" onClick={() => void start()}>Try again <ArrowRight size={17}/></button></>
-                : <><h2>{playing ? 'Your hometown, in your words.' : 'Show us what you got.'}</h2><p>{playing ? 'Keep going. A pause is okay. Progress over perfection.' : 'Speak in Spanish, then listen back to your recording.'}</p>{!playing && <button className="primary-button" disabled={status === 'requesting'} onClick={() => void start()}>{status === 'requesting' ? 'Waiting for microphone permission…' : 'Start 30-second challenge'}<ArrowRight size={17}/></button>}{playing && <div className="solo-countdown" aria-hidden="true">{seconds}<small>seconds left</small></div>}</>}
+                : <><h2>{playing ? 'Your hometown, in your words.' : 'Show us what you got.'}</h2><p>{playing ? '' : 'Speak in Spanish, then listen back to your recording.'}</p>{!playing && <button className="primary-button" disabled={status === 'requesting'} onClick={() => void start()}>{status === 'requesting' ? 'Waiting for microphone permission…' : 'Start 30-second challenge'}<ArrowRight size={17}/></button>}{playing && <div className="solo-countdown" aria-hidden="true">{seconds}<small>seconds left</small></div>}</>}
             </div>
-            <div className="video-bottom"><div className="partner-name">Your speaking space<small>No partner needed <span>·</span> Audio stays in this tab</small></div><div className="audio-badge"><AudioLines size={21}/></div></div>
+            <div className="video-bottom"><div className="partner-name">Your speaking space<small>Test your audio and camera <span>·</span> Practice session</small></div><div className="audio-badge"><AudioLines size={21}/></div></div>
           </div>
         }/>
-        <PracticeControls cameraOn={!!camera.stream} cameraBusy={camera.busy} onCamera={() => void camera.toggle()} micOn={playing && !muted} micDisabled={!playing} onMic={toggleMute} hint={hint} onHint={() => setHint(!hint)} onFinish={stop} finishDisabled={!playing} finishLabel="Finish early" status="Solo practice · camera stays local"/>
+        <PracticeControls cameraOn={!!camera.stream} cameraBusy={camera.busy} onCamera={() => void camera.toggle()} micOn={playing && !muted} micDisabled={!playing} onMic={toggleMute} hint={hint} onHint={() => setHint(!hint)} onFinish={stop} finishDisabled={!playing} finishLabel="Finish early" status="Solo practice"/>
       </section>
     </main>
   </div>;

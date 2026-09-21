@@ -12,6 +12,7 @@ import { Sparkles } from 'lucide-react';
 type Match = {
   id: string; status: string; language_code: string; azure_locale: string | null;
   duration_secs: number; started_at: string | null; server_now: string; seat: number;
+  ended_at: string | null;
   participant_count: number; room_code: string; challenge_prompt: string | null;
 };
 type Attempt = {
@@ -92,8 +93,8 @@ export function MatchClient({ matchId }: { matchId: string }) {
 
   const remaining = match?.started_at && receivedPerf
     ? Math.max(0, match.duration_secs - Math.floor((
-      new Date(match.server_now).getTime() - new Date(match.started_at).getTime() +
-      Math.max(0, clock - receivedPerf)) / 1000))
+      new Date(match.ended_at ?? match.server_now).getTime() - new Date(match.started_at).getTime() +
+      (match.status === "playing" && !match.ended_at ? Math.max(0, clock - receivedPerf) : 0)) / 1000))
     : null;
   useEffect(() => {
     if (match?.status === "playing" && remaining === 0 && !busy) void updateStatus("end");

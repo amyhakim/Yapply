@@ -17,6 +17,5 @@ export function PracticeControls({ cameraOn, cameraBusy, onCamera, micOn, micDis
       <span className="control-divider"/>
       <button className="control leave" disabled={finishDisabled} onClick={onFinish}><span><Square/></span>{finishLabel}</button>
     </div>
-    <span className="solo-footer-note">Camera is optional</span>
   </div>;
 }
