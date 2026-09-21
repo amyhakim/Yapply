@@ -36,7 +36,7 @@ export function MatchScore({ matchId, endedAt, prompt, attempts }: {
   const topicScore = detailed?.dimensions.conversation ?? report.topicScore;
   const flowScore = report.flowScore ?? detailed?.dimensions.fluency ?? null;
   const pronunciationScore = detailed?.dimensions.pronunciation ?? report.pronunciationScore;
-  const uniqueWords = detailed?.metrics.uniqueWords ?? report.uniqueWords;
+  const uniqueWords = detailed?.metrics?.uniqueWords ?? report.uniqueWords;
   const overall = detailed?.overall ?? average([topicScore, flowScore, pronunciationScore]);
 
   useEffect(() => {
@@ -129,7 +129,7 @@ export function MatchScore({ matchId, endedAt, prompt, attempts }: {
     {detailed && <div className="report-coaching">
       <div><span>Grammar</span><strong>{detailed.dimensions.grammar}</strong></div>
       <div><span>Vocabulary</span><strong>{detailed.dimensions.vocabulary}</strong></div>
-      <div><span>Follow-up questions</span><strong>{detailed.metrics.followUpQuestions}</strong></div>
+      <div><span>Follow-up questions</span><strong>{detailed.metrics?.followUpQuestions ?? '—'}</strong></div>
       {detailed.feedback.improve.length > 0 && <section><h3>Things to try next time</h3><ul>
         {detailed.feedback.improve.map((item, index) => <li key={index}>{item.original && <span>{item.original} → </span>}
           {item.correction} {item.explanation}</li>)}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { toScoreView, type FeedbackRow, type ScoreRow } from "../lib/scores";
+import { azureScoreView, toScoreView, type FeedbackRow, type ScoreRow } from "../lib/scores";
 
 const row: ScoreRow = {
   overall: 84.6, conversation: 90, fluency: 88, pronunciation: 89.5, grammar: 80, vocabulary: 70,
@@ -43,4 +43,29 @@ test("feedback: ranked items come first in rank order, strong moments are separa
 
 test("feedback with nothing in it is empty, not an error", () => {
   assert.deepEqual(toScoreView(row, []).feedback, { improve: [], strongMoments: [] });
+});
+
+const clip = (accuracy: number | null, fluency: number | null, status = "complete") =>
+  ({ status, accuracy, fluency });
+
+test("without the scoring worker, the score is the average of fluency and accuracy", () => {
+  const view = azureScoreView([clip(88, 76), clip(92, 80)], null)!;
+  assert.equal(view.overall, 84); // (90 + 78) / 2
+  assert.deepEqual(view.dimensions, { fluency: 78, accuracy: 90 });
+  assert.equal(view.xpEarned, 0);
+  assert.deepEqual(view.feedback, { improve: [], strongMoments: [] });
+});
+
+test("when the worker also scored, only the headline and named scores come from Azure", () => {
+  const worker = toScoreView(row, [item({ kind: "mistake", original: "yo fue", correction: "yo fui", rank: 1 })]);
+  const view = azureScoreView([clip(70, 50)], worker)!;
+  assert.equal(view.overall, 60);
+  assert.deepEqual(view.dimensions, { fluency: 50, accuracy: 70 });
+  assert.equal(view.xpEarned, 46, "XP still comes from the worker");
+  assert.equal(view.feedback.improve[0].correction, "yo fui");
+});
+
+test("no scored clips means no Azure score", () => {
+  assert.equal(azureScoreView([], null), null);
+  assert.equal(azureScoreView([clip(80, 90, "processing"), clip(null, null)], null), null);
 });

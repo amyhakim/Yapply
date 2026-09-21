@@ -8,8 +8,8 @@ import { requireUser } from "@/lib/session";
 export const runtime = "nodejs";
 type Context = { params: Promise<{ id: string }> };
 
-// status: not_finished | pending (worker has not scored yet, poll again) |
-// unavailable (finished, not enough speech to score) | ready (score included).
+// status: not_finished | pending (clips still being scored, poll again) |
+// unavailable (finished, nothing usable to score) | ready (score included).
 export async function GET(request: NextRequest, context: Context) {
   try {
     const user = await requireUser(request);
