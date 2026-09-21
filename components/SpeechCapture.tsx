@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { useRoomContext } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import { encodeWav, Pcm16StreamEncoder } from "@/lib/wav";
@@ -28,13 +28,15 @@ function supportsStreamingUploads(): boolean {
   } catch { return false; }
 }
 
-export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, prompt, onSaved }: {
+export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, prompt, onSaved,
+  finishCurrentRef }: {
   matchId: string;
   startedAt: string;
   serverNow: string;
   receivedPerf: number;
   prompt: string | null;
   onSaved: () => void;
+  finishCurrentRef: RefObject<(() => void) | null>;
 }) {
   const room = useRoomContext();
   const [listening, setListening] = useState(false);
@@ -138,6 +140,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
   }, [matchId]);
 
   const stopListening = useCallback(() => {
+    finishCurrentRef.current = null;
     for (const attempt of activeStreamsRef.current) attempt.cancel();
     const stream = streamRef.current;
     if (stream) {
@@ -151,7 +154,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
     manualRef.current = null;
     setManual(false);
     setListening(false);
-  }, []);
+  }, [finishCurrentRef]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -200,7 +203,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
       let quietMs = 0;
       let capturedMs = 0;
       const flush = () => {
-        if (utterance && capturedMs >= 600) {
+        if (utterance && capturedMs >= 500) {
           if (utteranceStream) utteranceStream.finish();
           else void submit(utterance, context!.sampleRate, "unscripted", utteranceAt);
         } else {
@@ -213,8 +216,31 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
         loudFrames = 0;
       };
 
+      // End a recording before MatchClient closes the LiveKit room. Closing a
+      // request body lets a pending assessment finish even after this component unmounts.
+      finishCurrentRef.current = () => {
+        const attempt = manualRef.current;
+        if (attempt) {
+          manualRef.current = null;
+          setManual(false);
+          if (attempt.chunks.length * frameMs >= 500) {
+            if (attempt.stream) attempt.stream.finish();
+            else void submit(attempt.chunks, context!.sampleRate, "scripted", attempt.atMs);
+          } else {
+            attempt.stream?.cancel();
+          }
+        } else {
+          flush();
+        }
+        stopListening();
+      };
+
       node.port.onmessage = (event: MessageEvent<Float32Array>) => {
-        if (publication.isMuted || localTrack.mediaStreamTrack.readyState !== "live") {
+        if (localTrack.mediaStreamTrack.readyState !== "live") {
+          finishCurrentRef.current?.();
+          return;
+        }
+        if (publication.isMuted) {
           utterance = null;
           utteranceStream?.cancel();
           utteranceStream = null;
@@ -273,7 +299,8 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
     } finally {
       startingRef.current = false;
     }
-  }, [room, serverNow, startedAt, receivedPerf, startStream, submit]);
+  }, [room, serverNow, startedAt, receivedPerf, startStream, submit, stopListening,
+    finishCurrentRef]);
 
   const startScripted = () => {
     if (!streamRef.current) return;
