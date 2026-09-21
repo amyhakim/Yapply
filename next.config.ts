@@ -1,8 +1,8 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
-const nextConfig: NextConfig = {
-  agentRules: false,
+const config: NextConfig = {
+  outputFileTracingRoot: process.cwd(),
   turbopack: { root: process.cwd() },
 };
 
-export default nextConfig;
+export default config;

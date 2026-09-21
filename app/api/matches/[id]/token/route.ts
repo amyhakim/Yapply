@@ -29,7 +29,7 @@ export async function POST(request: NextRequest, context: Context) {
       roomJoin: true,
       room: match.livekit_room,
       canPublish: true,
-      canPublishSources: [TrackSource.MICROPHONE],
+      canPublishSources: [TrackSource.MICROPHONE, TrackSource.CAMERA],
       canSubscribe: true,
       canPublishData: false,
     });

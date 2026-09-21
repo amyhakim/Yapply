@@ -1,6 +1,6 @@
 # Yapply
 
-A two-person language practice prototype with LiveKit voice rooms and Azure Speech pronunciation assessment.
+A two-person language practice prototype with the pink/green frontend, LiveKit audio/video rooms, Azure Speech pronunciation assessment, and a separate scoring worker. See [the integration guide](docs/frontend-api.md) for the connected UI, API routes, and Railway setup.
 
 ## Set up
 
@@ -39,4 +39,4 @@ Run `npm run typecheck`, `npm test`, and `npm run build`. The WAV and Azure resu
 
 ## Current product scope
 
-The app provides guest sessions and share-code rooms so the two integrations can be used now. Guest sessions last in that browser for 30 days; there is no account recovery. Random matchmaking, AI opponents, production authentication, moderation, ElevenLabs transcription, and the full match score engine are separate features in `language_learning_game_design.md`.
+The app provides guest sessions and share-code rooms. Guest sessions last in that browser for 30 days; there is no account recovery. Random matchmaking, AI opponents, production authentication, moderation, and ElevenLabs transcription remain future features. The separate worker in `backend/` supplies overall scoring through the `/api/matches/:id/score` route.

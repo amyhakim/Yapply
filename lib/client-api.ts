@@ -1,7 +1,8 @@
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...options, cache: "no-store" });
-  const data = await response.json() as T & { error?: string };
-  if (!response.ok) throw new Error(data.error ?? `Request failed (${response.status})`);
+  const data = await response.json().catch(() => null) as (T & { error?: string }) | null;
+  if (!response.ok) throw new Error(data?.error ?? `Request failed (${response.status}). Please try again.`);
+  if (data === null) throw new Error("The server returned an unreadable response. Please try again.");
   return data;
 }
 

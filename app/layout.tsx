@@ -1,12 +1,8 @@
-import type { Metadata } from "next";
-import "./globals.css";
-import "@livekit/components-styles";
-
-export const metadata: Metadata = {
-  title: "Yapply",
-  description: "Live language practice and pronunciation feedback",
-};
-
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body>{children}</body></html>;
-}
+import type { Metadata } from 'next';
+import '@livekit/components-styles';
+import '@fontsource/montserrat/500.css';
+import '@fontsource/montserrat/600.css';
+import '@fontsource/montserrat/700.css';
+import '@fontsource/montserrat/800.css';
+import './globals.css';
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) { return <html lang="en"><body>{children}</body></html>; }

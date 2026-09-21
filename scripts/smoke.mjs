@@ -54,6 +54,8 @@ assert.equal(token.status, 200, JSON.stringify(token.data));
 const claims = JSON.parse(Buffer.from(token.data.token.split(".")[1], "base64url").toString());
 assert.equal(claims.sub, first.data.user.id);
 assert.equal(claims.video.room, room.data.match.livekit_room);
+assert.ok(claims.video.canPublishSources.includes("camera"));
+assert.ok(claims.video.canPublishSources.includes("microphone"));
 
 const started = await call(`/api/matches/${id}/start`, {
   method: "POST", cookie: first.cookie,
