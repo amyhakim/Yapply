@@ -16,19 +16,14 @@ type Match = {
   duration_secs: number; started_at: string | null; server_now: string; seat: number;
   ended_at: string | null;
   participant_count: number; room_code: string; challenge_prompt: string | null;
-  end_reason: "language_switch" | "silent_mic" | "long_pause" | null; end_reason_seat: number | null;
+  end_reason: "silent_mic" | "long_pause" | null; end_reason_seat: number | null;
 };
 
-// Why the match ended early, told from this player's point of view. Speaking the wrong language is
-// an automatic loss; a silent microphone is decided by score like a normal finish.
+// Why the match ended early, told from this player's point of view. Either way the winner is
+// decided by score like a normal finish.
 function endedEarlyMessage(match: Match): string | null {
   if (!match.end_reason) return null;
   const you = match.end_reason_seat === match.seat;
-  if (match.end_reason === "language_switch") {
-    return you
-      ? "The match ended because you spoke a different language than this match's. You lose automatically."
-      : "The match ended because your partner spoke a different language than this match's. You win automatically.";
-  }
   if (match.end_reason === "long_pause") {
     return "The match ended early because nobody spoke for 10 seconds. The winner is decided by score.";
   }
@@ -196,6 +191,7 @@ export function MatchClient({ matchId }: { matchId: string }) {
         }}/>
         {match.status === "playing" && match.started_at &&
           <SpeechCapture matchId={matchId} startedAt={match.started_at}
+            matchLanguage={match.language_code === "es" ? "Spanish" : "English"}
             serverNow={match.server_now} receivedPerf={receivedPerf}
             prompt={match.challenge_prompt} onSaved={() => void refreshResults()}
             onMicSilent={() => void updateStatus("end", "silent_mic")}

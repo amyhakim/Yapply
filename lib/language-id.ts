@@ -18,9 +18,17 @@ export function otherLocaleFor(matchLocale: string | null): string | null {
   return (matchLocale && OTHER_LOCALE[matchLocale]) || null;
 }
 
+// Points taken off a player's conversation score for each clip spoken in the wrong language.
+export const WRONG_LANGUAGE_PENALTY = 10;
+
+/** The score after docking points for wrong-language clips. It never goes below 0. */
+export function applyLanguagePenalty(score: number, wrongLanguageClips: number): number {
+  return Math.max(0, score - WRONG_LANGUAGE_PENALTY * wrongLanguageClips);
+}
+
 /**
- * True only when Azure is confident the clip is in the other language. A wrong "yes" ends a match
- * unfairly, while a missed detection costs nothing, so anything uncertain counts as "no".
+ * True only when Azure is confident the clip is in the other language. A wrong "yes" docks a
+ * player unfairly, while a missed detection costs nothing, so anything uncertain counts as "no".
  */
 export function isOtherLanguage(check: LanguageCheck | null | undefined, otherLocale: string | null): boolean {
   if (!check || !otherLocale || !check.language) return false;

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { applyLanguagePenalty, WRONG_LANGUAGE_PENALTY } from "../lib/language-id";
 import {
-  azureScoreView, decideOutcome, noSpeechScoreView, resolveOutcome, toScoreView,
+  azureScoreView, decideOutcome, noSpeechScoreView, toScoreView,
   type FeedbackRow, type ScoreRow,
 } from "../lib/scores";
 
@@ -88,13 +89,18 @@ test("a player with nothing scored has a conversation score of 0", () => {
   assert.equal(noSpeechScoreView(toScoreView(row, [])).xpEarned, 46, "worker XP is kept");
 });
 
-test("speaking the wrong language is an automatic loss, whatever the scores", () => {
-  // The offender is 'a'. They lose even with the higher score, and the other player wins.
-  assert.deepEqual(resolveOutcome(95, 40, "a", "a"), { outcome: "loss", forfeit: "language_switch" });
-  assert.deepEqual(resolveOutcome(40, 95, "a", "b"), { outcome: "win", forfeit: "language_switch" });
+test("each clip in the wrong language costs 10 points, and a score never goes below 0", () => {
+  assert.equal(WRONG_LANGUAGE_PENALTY, 10);
+  assert.equal(applyLanguagePenalty(80, 0), 80);
+  assert.equal(applyLanguagePenalty(80, 1), 70);
+  assert.equal(applyLanguagePenalty(80, 3), 50);
+  assert.equal(applyLanguagePenalty(15, 4), 0);
+  assert.equal(applyLanguagePenalty(0, 2), 0);
 });
 
-test("with no rule broken the higher score decides", () => {
-  assert.deepEqual(resolveOutcome(84, 60, null, "a"), { outcome: "win" });
-  assert.deepEqual(resolveOutcome(60, 60, null, "a"), { outcome: "tie" });
+test("docked points can change who wins", () => {
+  // 85 beats 80 until two wrong-language clips take 20 points off.
+  assert.equal(decideOutcome(85, 80), "win");
+  assert.equal(decideOutcome(applyLanguagePenalty(85, 2), 80), "loss");
+  assert.equal(decideOutcome(applyLanguagePenalty(85, 1), applyLanguagePenalty(75, 0)), "tie");
 });

@@ -23,7 +23,7 @@ export interface MatchView {
   end_reason_seat: number | null;
 }
 
-export type EndReason = "language_switch" | "silent_mic" | "long_pause";
+export type EndReason = "silent_mic" | "long_pause";
 
 /**
  * Ends a playing match for both players and closes the call. When an early-end reason is given it

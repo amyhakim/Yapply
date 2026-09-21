@@ -4,7 +4,7 @@ import { assessPcmStream, assessWav, InvalidPcmStreamError } from "@/lib/azure";
 import { db, transaction } from "@/lib/db";
 import { ApiError, jsonError } from "@/lib/http";
 import { isOtherLanguage, otherLocaleFor } from "@/lib/language-id";
-import { endMatch, getMatch } from "@/lib/matches";
+import { getMatch } from "@/lib/matches";
 import { requireUser } from "@/lib/session";
 import { wavDurationMs } from "@/lib/wav";
 
@@ -90,6 +90,9 @@ export async function POST(request: NextRequest, context: Context) {
     } else {
       assessed = await assessWav(wav!, match.azure_locale, reference, languageCandidates);
     }
+    // Azure is confident this clip is in the other language: it costs the player points when the
+    // score is worked out (see getScoreView), and the match carries on.
+    const wrongLanguage = isOtherLanguage(assessed.language, otherLocale);
     await transaction(async (client) => {
       await client.query(
         `UPDATE pronunciation_attempts SET status = 'complete',
@@ -114,6 +117,15 @@ export async function POST(request: NextRequest, context: Context) {
             assessed.recognizedText.trim().split(/\s+/).length],
         );
       }
+      if (wrongLanguage) {
+        await client.query(
+          `INSERT INTO challenge_events (match_id, participant_id, event_type, at_ms, payload)
+           VALUES ($1,
+                   (SELECT p.id FROM match_participants p WHERE p.match_id = $1 AND p.user_id = $2::uuid),
+                   'wrong_language_clip', $3, $4::jsonb)`,
+          [matchId, user.id, atMs, JSON.stringify({ attempt_id: id })],
+        );
+      }
       for (const word of assessed.words) {
         const wordAtMs = atMs + word.atMs;
         if (word.score < 80 || (word.errorType && word.errorType !== "None")) {
@@ -134,25 +146,13 @@ export async function POST(request: NextRequest, context: Context) {
         }
       }
     });
-    // Azure is confident this clip is in the other language: the match ends for both players and
-    // the winner is decided by score. A failure to end must not lose the assessment just stored.
-    let matchEnded: "language_switch" | null = null;
-    if (isOtherLanguage(assessed.language, otherLocale)) {
-      try {
-        if (await endMatch(matchId, { reason: "language_switch", userId: user.id })) {
-          matchEnded = "language_switch";
-        }
-      } catch (error) {
-        console.error("Could not end the match after a language switch", error);
-      }
-    }
     return NextResponse.json({
       id, mode, recognizedText: assessed.recognizedText,
       pronScore: assessed.pronScore, accuracy: assessed.accuracy,
       fluency: assessed.fluency, prosody: assessed.prosody,
       notableWords: assessed.words.filter((word) => word.score < 80 ||
         (word.errorType && word.errorType !== "None")),
-      matchEnded,
+      wrongLanguage,
     });
   } catch (error) {
     if (claimedId) {

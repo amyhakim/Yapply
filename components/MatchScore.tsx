@@ -80,11 +80,9 @@ export function MatchScore({ matchId, endedAt, prompt, attempts }: {
 
     {detailed?.matchResult && <p className={`notice match-outcome ${detailed.matchResult.outcome}`} role="status">
       <strong>{{ win: 'You won!', loss: 'You lost', tie: 'It’s a tie' }[detailed.matchResult.outcome]}</strong>
-      {' '}{detailed.matchResult.forfeit === 'language_switch'
-        ? (detailed.matchResult.outcome === 'loss'
-          ? 'You spoke the wrong language, which is an automatic loss.'
-          : 'Your partner spoke the wrong language, which is an automatic loss for them.')
-        : `The winner is decided by conversation score: ${detailed.matchResult.yourScore} to ${detailed.matchResult.opponentScore}.`}</p>}
+      {' '}The winner is decided by conversation score: {detailed.matchResult.yourScore} to {detailed.matchResult.opponentScore}.
+      {detailed.languagePenalty && <>
+        {' '}You lost {detailed.languagePenalty.points} points for speaking the wrong language in {detailed.languagePenalty.clips} {detailed.languagePenalty.clips === 1 ? 'clip' : 'clips'}.</>}</p>}
 
     <div className="report-kpis">
       <article><span className="kpi-icon coral"><Sparkles/></span><div><small>Unique words</small>

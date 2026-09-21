@@ -98,7 +98,6 @@ test("the default pause limit is 10 seconds", () => {
 test("a browser may report a silent mic or a long pause, and nothing else", () => {
   assert.equal(clientEndReason('{"reason":"silent_mic"}'), "silent_mic");
   assert.equal(clientEndReason('{"reason":"long_pause"}'), "long_pause");
-  assert.equal(clientEndReason('{"reason":"language_switch"}'), null, "decided on the server only");
   assert.equal(clientEndReason('{"reason":"anything"}'), null);
   assert.equal(clientEndReason(""), null, "an ordinary end has no body");
   assert.equal(clientEndReason("not json"), null);
