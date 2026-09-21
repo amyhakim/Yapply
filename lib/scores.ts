@@ -32,11 +32,15 @@ export interface FeedbackRow {
 
 export type Outcome = "win" | "loss" | "tie";
 
-/** Who won, decided by comparing the two players' conversation scores. */
+/**
+ * Who won. Normally that is the higher conversation score; the exception is a player who spoke
+ * the wrong language, who loses automatically whatever the scores are (`forfeit` is then set).
+ */
 export interface MatchResult {
   outcome: Outcome;
   yourScore: number;
   opponentScore: number;
+  forfeit?: "language_switch";
 }
 
 // Shape follows the design document's example score object (section 17).
@@ -135,6 +139,19 @@ export function decideOutcome(yourScore: number, opponentScore: number): Outcome
   return "tie";
 }
 
+/**
+ * Speaking the wrong language is an automatic loss for that player and a win for the other,
+ * whatever the scores say. `forfeitedUserId` is who broke the rule, or null if nobody did.
+ */
+export function resolveOutcome(
+  yourScore: number, opponentScore: number, forfeitedUserId: string | null, userId: string,
+): { outcome: Outcome; forfeit?: "language_switch" } {
+  if (forfeitedUserId) {
+    return { outcome: forfeitedUserId === userId ? "loss" : "win", forfeit: "language_switch" };
+  }
+  return { outcome: decideOutcome(yourScore, opponentScore) };
+}
+
 const FINISHED = ["complete", "processing", "results"];
 // Clips are still being sent for a moment after the match ends; wait so the score is complete.
 const SETTLE_MS = 8_000;
@@ -155,12 +172,18 @@ export async function getScoreView(
 
   const state = await db().query<{
     scored_at: Date | null; ended_at: Date | null; clips_in_flight: boolean;
+    forfeited_user: string | null;
   }>(
     // A clip stuck 'processing' for minutes (e.g. a crashed request) must not block results forever.
     `SELECT m.scored_at, m.ended_at,
             EXISTS (SELECT 1 FROM pronunciation_attempts a
                      WHERE a.match_id = m.id AND a.status = 'processing'
-                       AND a.created_at > now() - interval '2 minutes') AS clips_in_flight
+                       AND a.created_at > now() - interval '2 minutes') AS clips_in_flight,
+            (SELECT ep.user_id::text FROM challenge_events e
+               JOIN match_participants ep ON ep.id = e.participant_id
+              WHERE e.match_id = m.id AND e.event_type = 'match_ended_early'
+                AND e.payload->>'reason' = 'language_switch'
+              ORDER BY e.id DESC LIMIT 1) AS forfeited_user
        FROM matches m WHERE m.id = $1`, [matchId],
   );
   const info = state.rows[0];
@@ -198,7 +221,8 @@ export async function getScoreView(
 
   const myScore = conversationBreakdown(mine).score;
   const opponentScore = conversationBreakdown(theirs).score;
-  if (myScore !== null || opponentScore !== null) {
+  // A forfeit decides the result even if nobody has a usable score.
+  if (info?.forfeited_user || myScore !== null || opponentScore !== null) {
     if (sinceEnd !== null && sinceEnd < SETTLE_MS) return { status: "pending" };
     const view = azureScoreView(mine, worker) ?? noSpeechScoreView(worker);
     const opponent = opponentScore ?? 0;
@@ -207,7 +231,7 @@ export async function getScoreView(
       score: {
         ...view,
         matchResult: {
-          outcome: decideOutcome(view.overall, opponent),
+          ...resolveOutcome(view.overall, opponent, info?.forfeited_user ?? null, userId),
           yourScore: view.overall,
           opponentScore: opponent,
         },

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { clientEndReason } from "../lib/end-reason";
 import { isOtherLanguage, otherLocaleFor } from "../lib/language-id";
 import { allPresent } from "../lib/livekit-presence";
+import { LONG_PAUSE_MS, PauseWatch } from "../lib/pause-watch";
 import { SilenceWatch } from "../lib/silence-watch";
 
 test("each match language has a different language to watch for", () => {
@@ -64,4 +66,41 @@ test("the match can start only when every player is in the live call", () => {
   assert.equal(allPresent(["a", "b"], ["a"]), false);
   assert.equal(allPresent(["a", "b"], []), false);
   assert.equal(allPresent(["a", "b"], null), true, "if LiveKit cannot be checked, do not block the game");
+});
+
+test("a pause only counts once someone has spoken, and needs the full 10 seconds", () => {
+  const watch = new PauseWatch(10_000);
+  assert.equal(watch.update(false, 0), false, "a quiet start is not a pause");
+  assert.equal(watch.update(false, 60_000), false, "even a long quiet start");
+  assert.equal(watch.update(true, 61_000), false, "someone speaks");
+  assert.equal(watch.update(false, 65_000), false, "4 seconds of quiet");
+  assert.equal(watch.update(false, 70_999), false, "just under 10 seconds");
+  assert.equal(watch.update(false, 71_000), true, "10 seconds of quiet");
+});
+
+test("any speech, from either player, restarts the pause clock", () => {
+  const watch = new PauseWatch(10_000);
+  watch.update(true, 0);
+  assert.equal(watch.update(false, 9_000), false);
+  assert.equal(watch.update(true, 9_500), false, "the partner starts talking");
+  assert.equal(watch.update(false, 19_000), false, "9.5 seconds since they stopped");
+  assert.equal(watch.update(false, 19_500), true);
+});
+
+test("the default pause limit is 10 seconds", () => {
+  assert.equal(LONG_PAUSE_MS, 10_000);
+  const watch = new PauseWatch();
+  watch.update(true, 0);
+  assert.equal(watch.update(false, 9_999), false);
+  assert.equal(watch.update(false, 10_000), true);
+});
+
+test("a browser may report a silent mic or a long pause, and nothing else", () => {
+  assert.equal(clientEndReason('{"reason":"silent_mic"}'), "silent_mic");
+  assert.equal(clientEndReason('{"reason":"long_pause"}'), "long_pause");
+  assert.equal(clientEndReason('{"reason":"language_switch"}'), null, "decided on the server only");
+  assert.equal(clientEndReason('{"reason":"anything"}'), null);
+  assert.equal(clientEndReason(""), null, "an ordinary end has no body");
+  assert.equal(clientEndReason("not json"), null);
+  assert.equal(clientEndReason("null"), null);
 });

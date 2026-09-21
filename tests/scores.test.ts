@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  azureScoreView, decideOutcome, noSpeechScoreView, toScoreView, type FeedbackRow, type ScoreRow,
+  azureScoreView, decideOutcome, noSpeechScoreView, resolveOutcome, toScoreView,
+  type FeedbackRow, type ScoreRow,
 } from "../lib/scores";
 
 const row: ScoreRow = {
@@ -85,4 +86,15 @@ test("a player with nothing scored has a conversation score of 0", () => {
   assert.deepEqual(view.dimensions, {});
   assert.equal(view.xpEarned, 0);
   assert.equal(noSpeechScoreView(toScoreView(row, [])).xpEarned, 46, "worker XP is kept");
+});
+
+test("speaking the wrong language is an automatic loss, whatever the scores", () => {
+  // The offender is 'a'. They lose even with the higher score, and the other player wins.
+  assert.deepEqual(resolveOutcome(95, 40, "a", "a"), { outcome: "loss", forfeit: "language_switch" });
+  assert.deepEqual(resolveOutcome(40, 95, "a", "b"), { outcome: "win", forfeit: "language_switch" });
+});
+
+test("with no rule broken the higher score decides", () => {
+  assert.deepEqual(resolveOutcome(84, 60, null, "a"), { outcome: "win" });
+  assert.deepEqual(resolveOutcome(60, 60, null, "a"), { outcome: "tie" });
 });

@@ -19,19 +19,19 @@ export interface MatchView {
   challenge_prompt: string | null;
   /** Set when the match ended early because of a rule (see EndReason), else null. */
   end_reason: EndReason | null;
-  /** Seat of the player who caused the early end. */
+  /** Seat of the player who caused the early end; null when nobody is to blame (a long pause). */
   end_reason_seat: number | null;
 }
 
-export type EndReason = "language_switch" | "silent_mic";
+export type EndReason = "language_switch" | "silent_mic" | "long_pause";
 
 /**
  * Ends a playing match for both players and closes the call. When an early-end reason is given it
- * is recorded, with the player responsible, so both screens can say what happened. Returns false
- * if the match was not playing, e.g. the timer or the other player got there first.
+ * is recorded, with the player responsible if there is one, so both screens can say what happened.
+ * Returns false if the match was not playing, e.g. the timer or the other player got there first.
  */
 export async function endMatch(
-  matchId: string, early?: { reason: EndReason; userId: string },
+  matchId: string, early?: { reason: EndReason; userId?: string },
 ): Promise<boolean> {
   const room = await transaction(async (client) => {
     const updated = await client.query<{ livekit_room: string }>(
@@ -43,9 +43,10 @@ export async function endMatch(
     if (early) {
       await client.query(
         `INSERT INTO challenge_events (match_id, participant_id, event_type, payload)
-         SELECT $1, p.id, 'match_ended_early', $3::jsonb
-           FROM match_participants p WHERE p.match_id = $1 AND p.user_id = $2`,
-        [matchId, early.userId, JSON.stringify({ reason: early.reason })],
+         VALUES ($1,
+                 (SELECT p.id FROM match_participants p WHERE p.match_id = $1 AND p.user_id = $2::uuid),
+                 'match_ended_early', $3::jsonb)`,
+        [matchId, early.userId ?? null, JSON.stringify({ reason: early.reason })],
       );
     }
     return updated.rows[0].livekit_room;

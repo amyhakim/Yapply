@@ -8,6 +8,7 @@ import { SpeechCapture } from "./SpeechCapture";
 import { LiveCall } from "./LiveCall";
 import { MatchScore } from "./MatchScore";
 import { PartnerWatcher } from "./PartnerWatcher";
+import { PauseWatcher } from "./PauseWatcher";
 import { Sparkles } from 'lucide-react';
 
 type Match = {
@@ -15,17 +16,23 @@ type Match = {
   duration_secs: number; started_at: string | null; server_now: string; seat: number;
   ended_at: string | null;
   participant_count: number; room_code: string; challenge_prompt: string | null;
-  end_reason: "language_switch" | "silent_mic" | null; end_reason_seat: number | null;
+  end_reason: "language_switch" | "silent_mic" | "long_pause" | null; end_reason_seat: number | null;
 };
 
-// Why the match ended early, told from this player's point of view. The winner is decided by score.
+// Why the match ended early, told from this player's point of view. Speaking the wrong language is
+// an automatic loss; a silent microphone is decided by score like a normal finish.
 function endedEarlyMessage(match: Match): string | null {
   if (!match.end_reason) return null;
   const you = match.end_reason_seat === match.seat;
-  const cause = match.end_reason === "language_switch"
-    ? `${you ? "you" : "your partner"} spoke a different language than this match's`
-    : `${you ? "your" : "your partner's"} microphone wasn't picking up any sound`;
-  return `The match ended early because ${cause}. The winner is decided by score.`;
+  if (match.end_reason === "language_switch") {
+    return you
+      ? "The match ended because you spoke a different language than this match's. You lose automatically."
+      : "The match ended because your partner spoke a different language than this match's. You win automatically.";
+  }
+  if (match.end_reason === "long_pause") {
+    return "The match ended early because nobody spoke for 10 seconds. The winner is decided by score.";
+  }
+  return `The match ended early because ${you ? "your" : "your partner's"} microphone wasn't picking up any sound. The winner is decided by score.`;
 }
 type Attempt = {
   id: string; mode: string; recognized_text: string | null;
@@ -105,7 +112,7 @@ export function MatchClient({ matchId }: { matchId: string }) {
     return () => clearInterval(poll);
   }, [match?.status, match?.ended_at, refreshResults]);
 
-  const updateStatus = async (action: "start" | "end", reason?: "silent_mic") => {
+  const updateStatus = async (action: "start" | "end", reason?: "silent_mic" | "long_pause") => {
     setBusy(true); setError(null);
     try {
       if (action === "end") finishCurrentRef.current?.();
@@ -119,7 +126,9 @@ export function MatchClient({ matchId }: { matchId: string }) {
       setMatch(data.match);
       if (action === "end") await refreshResults();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : `Could not ${action} match`);
+      // Both browsers can spot the same pause; the second one finds the match already over.
+      if (reason) void refreshMatch().catch(() => {});
+      else setError(caught instanceof Error ? caught.message : `Could not ${action} match`);
     } finally { setBusy(false); }
   };
 
@@ -178,6 +187,8 @@ export function MatchClient({ matchId }: { matchId: string }) {
       <LiveKitRoom token={connection.token} serverUrl={connection.url} connect audio={false} video={false}
         onError={handleCallError} onDisconnected={handleDisconnected}>
         <PartnerWatcher onChange={setPartnerInCall}/>
+        <PauseWatcher active={match.status === "playing"}
+          onLongPause={() => void updateStatus("end", "long_pause")}/>
         <LiveCall onLeave={() => {
           finishCurrentRef.current?.();
           setConnection(null);
