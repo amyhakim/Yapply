@@ -23,6 +23,7 @@ export async function GET(request: NextRequest, context: Context) {
          FROM pronunciation_attempts a
          LEFT JOIN pronunciation_results r ON r.attempt_id = a.id
         WHERE a.match_id = $1 AND a.user_id = $2
+          AND a.status <> 'failed'
         GROUP BY a.id
         ORDER BY a.at_ms DESC`,
       [id, user.id],
