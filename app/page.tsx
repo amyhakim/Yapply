@@ -118,7 +118,7 @@ export default function Home() {
       <div className="profile"><span className="streak"><span>✦</span> Welcome back</span><span className="profile-avatar">Y<span/></span></div>
     </header>
     <main>
-      <div className="page-heading"><div><h1>Hola! <span>Learn Spanish</span></h1><p>Strengthen your Spanish skills with daily practice.</p></div></div>
+      <div className="page-heading"><div><h1>Hola! <span>Learn a new language!</span></h1><p>Strengthen your language skills with real conversation!</p></div></div>
       <RoomLobby/>
       <section className="room solo-room" aria-label="Solo 30-second speaking challenge">
         <div className="room-top"><div className="language"><span className="flag">🇪🇸</span><strong>Spanish</strong><span className="level">Solo challenge</span></div><div className={`timer ${seconds <= 5 ? 'urgent' : ''}`} aria-label={`${seconds} seconds remaining`}><span className="timer-dot"/>0:{String(seconds).padStart(2, '0')}<span> / 0:30</span></div><button className="icon-button" aria-label="About solo practice" aria-expanded={help} onClick={() => setHelp(!help)}><MoreHorizontal size={23}/></button></div>
@@ -128,13 +128,13 @@ export default function Home() {
         {camera.busy && <p className="solo-help" role="status">Waiting for camera permission. Check your browser’s permission prompt.</p>}
         <PracticeGrid hint={hint} onHint={() => setHint(!hint)} starter="Mi ciudad se llama… Mi lugar favorito es… Me encanta porque…" preview={<CameraPreview stream={camera.stream}/>} stage={
           <div className={`partner-video solo-stage ${expanded ? 'expanded' : ''}`}>
-            <div className="video-top"><span className="live-badge"><span/>{playing ? (muted ? 'MICROPHONE MUTED' : 'RECORDING LOCALLY') : status === 'done' ? 'PRACTICE FINISHED' : 'YOUR MOMENT TO SPEAK'}</span><button className="glass-button" aria-label={expanded ? 'Minimize challenge' : 'Expand challenge'} onClick={() => setExpanded(!expanded)}><Maximize2 size={18}/></button></div>
+            <div className="video-top"><span className="live-badge"><span/>{playing ? (muted ? 'MICROPHONE MUTED' : 'RECORDING LOCALLY') : status === 'done' ? 'PRACTICE FINISHED' : null}</span><button className="glass-button" aria-label={expanded ? 'Minimize challenge' : 'Expand challenge'} onClick={() => setExpanded(!expanded)}><Maximize2 size={18}/></button></div>
             <div className="solo-center">
               <span className="solo-flower" aria-hidden="true">✿</span>
               {status === 'done' ? <><h2>{completed ? '30 seconds. One step forward.' : 'Every little practice counts.'}</h2><p>Listen back. Did you describe a place and explain why you love it?</p>{recordingUrl && <audio controls src={recordingUrl} aria-label="Listen to your speaking practice"/>}<p className="solo-note">Self-review only · no automatic score</p><button className="primary-button" onClick={() => void start()}>Try again <ArrowRight size={17}/></button></>
                 : <><h2>{playing ? 'Your hometown, in your words.' : 'Show us what you got.'}</h2><p>{playing ? '' : 'Speak in Spanish, then listen back to your recording.'}</p>{!playing && <button className="primary-button" disabled={status === 'requesting'} onClick={() => void start()}>{status === 'requesting' ? 'Waiting for microphone permission…' : 'Start 30-second challenge'}<ArrowRight size={17}/></button>}{playing && <div className="solo-countdown" aria-hidden="true">{seconds}<small>seconds left</small></div>}</>}
             </div>
-            <div className="video-bottom"><div className="partner-name">Your speaking space<small>Test your audio and camera <span>·</span> Practice session</small></div><div className="audio-badge"><AudioLines size={21}/></div></div>
+            <div className="video-bottom"><div className="partner-name">Your speaking space</div><div className="audio-badge"><AudioLines size={21}/></div></div>
           </div>
         }/>
         <PracticeControls cameraOn={!!camera.stream} cameraBusy={camera.busy} onCamera={() => void camera.toggle()} micOn={playing && !muted} micDisabled={!playing} onMic={toggleMute} hint={hint} onHint={() => setHint(!hint)} onFinish={stop} finishDisabled={!playing} finishLabel="Finish early"/>
