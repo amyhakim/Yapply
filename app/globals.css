@@ -44,6 +44,7 @@
 .score-dimensions dt { text-transform: capitalize; font-size: 11px; }
 .score-dimensions dd { margin: 0; font-size: 20px; font-weight: 800; }
 .attempt { padding: 15px 0; border-top: 1px solid var(--border); }
+.attempt > div { display: flex; align-items: baseline; gap: 8px; }
 .attempt p { margin: 4px 0; }
 @media(max-width:700px) { .lobby-forms { grid-template-columns: 1fr; } .room-lobby { padding: 20px; } .lobby-forms form { grid-template-columns: 1fr; } .live-page { padding: 0 14px 25px; } .live-call-grid .self-video { top: 15px; } .live-placeholder { min-height: 430px; padding-top: 150px; } .live-page .header > span { display: none; } .live-page .panel { padding: 18px; } }
 

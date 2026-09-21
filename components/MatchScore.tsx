@@ -92,7 +92,7 @@ export function MatchScore({ matchId, endedAt, prompt, attempts }: {
       <article><span className="kpi-icon gold"><BarChart3/></span><div><small>Topic focus</small>
         <strong>{topicScore ?? '—'}{topicScore !== null && <em>%</em>}</strong><p>stayed with the challenge</p></div></article>
       <article><span className="kpi-icon blue"><Volume2/></span><div><small>Pronunciation</small>
-        <strong>{pronunciationScore ?? '—'}</strong><p>Azure speech assessment</p></div></article>
+        <strong>{pronunciationScore ?? '—'}</strong><p>Speech assessment</p></div></article>
     </div>
 
     <div className="report-grid">
@@ -122,7 +122,6 @@ export function MatchScore({ matchId, endedAt, prompt, attempts }: {
           <em>−{report.pausePenalty} pts</em></div>
         <div className="deduction-row"><span>“Um” and fillers</span><strong>{report.fillerCount}</strong>
           <em>−{report.fillerPenalty} pts</em></div>
-        <p className="report-note">Flow starts from Azure fluency, then deducts for detected fillers and 2–8 second gaps between your analyzed clips.</p>
       </article>
     </div>
 
