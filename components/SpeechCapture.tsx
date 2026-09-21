@@ -5,12 +5,16 @@ import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import { encodeWav, Pcm16StreamEncoder } from "@/lib/wav";
 import { api } from "@/lib/client-api";
+import { WRONG_LANGUAGE_PENALTY } from "@/lib/language-id";
+import { SilenceWatch } from "@/lib/silence-watch";
 
 type CaptureMode = "scripted" | "unscripted";
 type Result = {
   pronScore: number | null;
   recognizedText: string;
   mode: CaptureMode;
+  /** The clip was spoken in the other language, which costs points at the end of the match. */
+  wrongLanguage?: boolean;
 };
 type StreamingAttempt = {
   write: (samples: Float32Array) => void;
@@ -28,14 +32,18 @@ function supportsStreamingUploads(): boolean {
   } catch { return false; }
 }
 
-export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, prompt, onSaved,
-  finishCurrentRef }: {
+export function SpeechCapture({ matchId, matchLanguage, startedAt, serverNow, receivedPerf, prompt,
+  onSaved, onMicSilent, finishCurrentRef }: {
   matchId: string;
+  /** Name of the language this match is played in, e.g. "Spanish". */
+  matchLanguage: string;
   startedAt: string;
   serverNow: string;
   receivedPerf: number;
   prompt: string | null;
   onSaved: () => void;
+  /** Called once when the microphone has picked up no sound at all for a sustained time. */
+  onMicSilent: () => void;
   finishCurrentRef: RefObject<(() => void) | null>;
 }) {
   const room = useRoomContext();
@@ -45,16 +53,24 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
   const [pending, setPending] = useState(0);
   const [lastResult, setLastResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [wrongClips, setWrongClips] = useState(0);
   const streamRef = useRef<{ context: AudioContext; source: MediaStreamAudioSourceNode;
     node: AudioWorkletNode; sink: GainNode } | null>(null);
   const manualRef = useRef<Manual | null>(null);
   const onSavedRef = useRef(onSaved);
+  const onMicSilentRef = useRef(onMicSilent);
   const pendingRef = useRef(0);
   const activeStreamsRef = useRef(new Set<StreamingAttempt>());
   const startingRef = useRef(false);
   const autoStartedTrackRef = useRef<MediaStreamTrack | null>(null);
   const mountedRef = useRef(true);
   onSavedRef.current = onSaved;
+  onMicSilentRef.current = onMicSilent;
+
+  const showResult = useCallback((result: Result) => {
+    setLastResult(result);
+    if (result.wrongLanguage) setWrongClips((count) => count + 1);
+  }, []);
 
   const submit = useCallback(async (chunks: Float32Array[], sampleRate: number,
     mode: CaptureMode, atMs: number) => {
@@ -72,7 +88,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
       const result = await api<Result>(`/api/matches/${matchId}/assess`, {
         method: "POST", body: form,
       });
-      setLastResult(result);
+      showResult(result);
       setError(null);
       onSavedRef.current();
     } catch (caught) {
@@ -81,7 +97,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
       pendingRef.current--;
       setPending(pendingRef.current);
     }
-  }, [matchId]);
+  }, [matchId, showResult]);
 
   const startStream = useCallback((sampleRate: number, mode: CaptureMode,
     atMs: number, chunks: Float32Array[]): StreamingAttempt | null => {
@@ -140,7 +156,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
       },
       body, duplex: "half", signal: abort.signal,
     } as RequestInit & { duplex: "half" }).then((result) => {
-      setLastResult(result);
+      showResult(result);
       setError(null);
       onSavedRef.current();
     }).catch((caught) => {
@@ -156,7 +172,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
       retryAsWav();
     });
     return attempt;
-  }, [matchId, submit]);
+  }, [matchId, submit, showResult]);
 
   const stopListening = useCallback(() => {
     finishCurrentRef.current = null;
@@ -215,6 +231,8 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
         Math.round(anchorElapsedMs + performance.now() - anchorPerf));
       const preRollCount = Math.ceil(450 / frameMs);
       const preRoll: Float32Array[] = [];
+      const silence = new SilenceWatch();
+      let silenceReported = false;
       let utterance: Float32Array[] | null = null;
       let utteranceStream: StreamingAttempt | null = null;
       let utteranceAt = 0;
@@ -260,6 +278,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
           return;
         }
         if (publication.isMuted) {
+          silence.reset(); // a muted player is not a dead microphone
           utterance = null;
           utteranceStream?.cancel();
           utteranceStream = null;
@@ -270,6 +289,14 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
           return;
         }
         const samples = event.data;
+        let power = 0;
+        for (let i = 0; i < samples.length; i++) power += samples[i] * samples[i];
+        const rms = Math.sqrt(power / samples.length);
+        // No sound at all, for a long time: the microphone is not working, so the match ends.
+        if (silence.feed(rms, frameMs) && !silenceReported) {
+          silenceReported = true;
+          onMicSilentRef.current();
+        }
         if (manualRef.current) {
           utterance = null;
           utteranceStream?.cancel();
@@ -288,9 +315,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
           }
           return;
         }
-        let power = 0;
-        for (let i = 0; i < samples.length; i++) power += samples[i] * samples[i];
-        const loud = Math.sqrt(power / samples.length) >= 0.018;
+        const loud = rms >= 0.018;
         if (!utterance) {
           preRoll.push(samples);
           if (preRoll.length > preRollCount) preRoll.shift();
@@ -375,6 +400,9 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
     </div>}
     {lastResult && <p className="result">Latest {lastResult.mode} score: <strong>
       {lastResult.pronScore ?? "—"}</strong> / 100 · “{lastResult.recognizedText}”</p>}
+    {wrongClips > 0 && <p className="error" role="alert">
+      Speak {matchLanguage} in this match. {wrongClips === 1 ? "A clip" : `${wrongClips} clips`} in
+      the other language will cost you {WRONG_LANGUAGE_PENALTY * wrongClips} points.</p>}
     {error && <p className="error" role="alert">{error}</p>}
   </section>;
 }

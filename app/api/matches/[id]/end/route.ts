@@ -1,9 +1,8 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { clientEndReason } from "@/lib/end-reason";
 import { ApiError, jsonError } from "@/lib/http";
-import { getMatch } from "@/lib/matches";
-import { closeLiveKitRoom } from "@/lib/livekit";
+import { endMatch, getMatch } from "@/lib/matches";
 import { requireUser } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -13,14 +12,11 @@ export async function POST(request: NextRequest, context: Context) {
   try {
     const user = await requireUser(request);
     const { id } = await context.params;
+    const reason = clientEndReason(await request.text());
     const match = await getMatch(id, user.id);
     if (match.status !== "playing") throw new ApiError(409, "Match is not playing");
-    const updated = await db().query<{ livekit_room: string }>(
-      `UPDATE matches SET status = 'complete', ended_at = now()
-       WHERE id = $1 AND status = 'playing' RETURNING livekit_room`,
-      [id],
-    );
-    if (updated.rows[0]) await closeLiveKitRoom(updated.rows[0].livekit_room).catch(console.error);
+    // A silent microphone is that player's doing; a long pause belongs to nobody in particular.
+    await endMatch(id, reason ? { reason, userId: reason === "silent_mic" ? user.id : undefined } : undefined);
     return NextResponse.json({ match: await getMatch(id, user.id) });
   } catch (error) { return jsonError(error); }
 }

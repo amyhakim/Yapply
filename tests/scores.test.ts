@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { azureScoreView, toScoreView, type FeedbackRow, type ScoreRow } from "../lib/scores";
+import { applyLanguagePenalty, WRONG_LANGUAGE_PENALTY } from "../lib/language-id";
+import {
+  azureScoreView, decideOutcome, noSpeechScoreView, toScoreView,
+  type FeedbackRow, type ScoreRow,
+} from "../lib/scores";
 
 const row: ScoreRow = {
   overall: 84.6, conversation: 90, fluency: 88, pronunciation: 89.5, grammar: 80, vocabulary: 70,
@@ -68,4 +72,35 @@ test("when the worker also scored, only the headline and named scores come from 
 test("no scored clips means no Azure score", () => {
   assert.equal(azureScoreView([], null), null);
   assert.equal(azureScoreView([clip(80, 90, "processing"), clip(null, null)], null), null);
+});
+
+test("the higher conversation score wins and equal scores tie", () => {
+  assert.equal(decideOutcome(84, 71), "win");
+  assert.equal(decideOutcome(60, 71), "loss");
+  assert.equal(decideOutcome(75, 75), "tie");
+  assert.equal(decideOutcome(0, 0), "tie");
+});
+
+test("a player with nothing scored has a conversation score of 0", () => {
+  const view = noSpeechScoreView(null);
+  assert.equal(view.overall, 0);
+  assert.deepEqual(view.dimensions, {});
+  assert.equal(view.xpEarned, 0);
+  assert.equal(noSpeechScoreView(toScoreView(row, [])).xpEarned, 46, "worker XP is kept");
+});
+
+test("each clip in the wrong language costs 10 points, and a score never goes below 0", () => {
+  assert.equal(WRONG_LANGUAGE_PENALTY, 10);
+  assert.equal(applyLanguagePenalty(80, 0), 80);
+  assert.equal(applyLanguagePenalty(80, 1), 70);
+  assert.equal(applyLanguagePenalty(80, 3), 50);
+  assert.equal(applyLanguagePenalty(15, 4), 0);
+  assert.equal(applyLanguagePenalty(0, 2), 0);
+});
+
+test("docked points can change who wins", () => {
+  // 85 beats 80 until two wrong-language clips take 20 points off.
+  assert.equal(decideOutcome(85, 80), "win");
+  assert.equal(decideOutcome(applyLanguagePenalty(85, 2), 80), "loss");
+  assert.equal(decideOutcome(applyLanguagePenalty(85, 1), applyLanguagePenalty(75, 0)), "tie");
 });
