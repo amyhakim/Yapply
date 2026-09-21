@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { LiveKitRoom } from "@livekit/components-react";
 import { api } from "@/lib/client-api";
@@ -31,10 +31,16 @@ export function MatchClient({ matchId }: { matchId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const handleCallError = useCallback((caught: Error) => setError(caught.message), []);
-  const handleDisconnected = useCallback(() => setConnection(null), []);
+  const [checkingResults, setCheckingResults] = useState(false);
+  const finishCurrentRef = useRef<(() => void) | null>(null);
+  const handleDisconnected = useCallback(() => {
+    finishCurrentRef.current?.();
+    setConnection(null);
+  }, []);
 
   const refreshMatch = useCallback(async () => {
     const data = await api<{ match: Match }>(`/api/matches/${matchId}`);
+    if (data.match.status === "complete") finishCurrentRef.current?.();
     setReceivedPerf(performance.now());
     setClock(performance.now());
     setMatch(data.match);
@@ -69,17 +75,26 @@ export function MatchClient({ matchId }: { matchId: string }) {
   };
 
   useEffect(() => {
-    if (match?.status !== "complete") return;
-    void refreshResults().catch((caught) => setError(String(caught)));
-    // Allow pronunciation uploads already in flight to finish after the round.
-    const timer = setInterval(() => void refreshResults().catch(() => {}), 4000);
-    const stop = setTimeout(() => clearInterval(timer), 40000);
-    return () => { clearInterval(timer); clearTimeout(stop); };
-  }, [match?.status, refreshResults]);
+    if (match?.status !== "complete" || !match.ended_at) return;
+    const deadline = new Date(match.ended_at).getTime() + 60_000;
+    setCheckingResults(Date.now() < deadline);
+    void refreshResults().catch(() => {});
+    if (Date.now() >= deadline) return;
+    const poll = setInterval(() => {
+      if (Date.now() >= deadline) {
+        clearInterval(poll);
+        setCheckingResults(false);
+      } else {
+        void refreshResults().catch(() => {});
+      }
+    }, 2_000);
+    return () => clearInterval(poll);
+  }, [match?.status, match?.ended_at, refreshResults]);
 
   const updateStatus = async (action: "start" | "end") => {
     setBusy(true); setError(null);
     try {
+      if (action === "end") finishCurrentRef.current?.();
       const data = await api<{ match: Match }>(`/api/matches/${matchId}/${action}`,
         { method: "POST" });
       setReceivedPerf(performance.now());
@@ -140,23 +155,32 @@ export function MatchClient({ matchId }: { matchId: string }) {
     {connection && match.status !== "complete" &&
       <LiveKitRoom token={connection.token} serverUrl={connection.url} connect audio={false} video={false}
         onError={handleCallError} onDisconnected={handleDisconnected}>
-        <LiveCall onLeave={() => { setConnection(null); if (match.status === "playing") void updateStatus("end"); }}/>
+        <LiveCall onLeave={() => {
+          finishCurrentRef.current?.();
+          setConnection(null);
+          if (match.status === "playing") void updateStatus("end");
+        }}/>
         {match.status === "playing" && match.started_at &&
           <SpeechCapture matchId={matchId} startedAt={match.started_at}
             serverNow={match.server_now} receivedPerf={receivedPerf}
-            prompt={match.challenge_prompt} onSaved={() => void refreshResults()} />}
+            prompt={match.challenge_prompt} onSaved={() => void refreshResults()}
+            finishCurrentRef={finishCurrentRef} />}
       </LiveKitRoom>}
     {match.status === "complete" && <p className="notice">Match finished. Your pronunciation feedback is below.</p>}
     </section>
-    {match.status === "complete" && <MatchScore matchId={matchId}/>}
+    {match.status === "complete" && <MatchScore matchId={matchId} endedAt={match.ended_at}/>}
     <section className="panel">
       <h2>Your assessment results</h2>
-      {attempts.length === 0 ? <p className="muted">Results will appear after you speak.</p> :
+      {attempts.length === 0 ? <p className="muted">{match.status === "complete"
+        ? checkingResults ? "No attempt saved yet. Checking for final pronunciation feedback…" :
+          "No pronunciation attempt was saved for this match. In your next match, turn on the microphone and check that the Pronunciation panel says Listening before you speak."
+        : "Results will appear after the Pronunciation panel starts listening and you speak."}</p> :
         <div className="attempts">{attempts.map((attempt) =>
           <article className="attempt" key={attempt.id}>
             <div><span className="eyebrow">{attempt.mode}</span><strong>
               {attempt.pron_score ?? "—"} / 100</strong></div>
-            <p>{attempt.recognized_text ?? (attempt.status === "processing" ? "Scoring…" : "No speech recognized")}</p>
+            <p>{attempt.recognized_text ?? (attempt.status === "processing" ? "Scoring…" :
+              attempt.status === "failed" ? "Assessment failed" : "No speech recognized")}</p>
             <p className="muted">Accuracy {attempt.accuracy ?? "—"} · Fluency {attempt.fluency ?? "—"}
               {attempt.prosody !== null && ` · Prosody ${attempt.prosody}`}</p>
             {attempt.notable_words.length > 0 && <p className="feedback">Practice: {

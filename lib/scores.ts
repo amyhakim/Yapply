@@ -123,9 +123,19 @@ export async function getScoreView(
     return { status: "ready", score: toScoreView(row, feedback.rows) };
   }
   if (!FINISHED.includes(match.status)) return { status: "not_finished" };
-  // The worker stamps scored_at even when it wrote no score (not enough speech).
-  const scored = await db().query<{ scored_at: Date | null }>(
-    "SELECT scored_at FROM matches WHERE id = $1", [matchId],
+  // Do not leave an empty match looking as though a worker is still grading it.
+  const scored = await db().query<{
+    scored_at: Date | null; ended_at: Date | null; has_speech: boolean;
+  }>(
+    `SELECT m.scored_at, m.ended_at,
+            EXISTS (SELECT 1 FROM transcript_turns t WHERE t.match_id = m.id)
+            OR EXISTS (SELECT 1 FROM pronunciation_attempts a WHERE a.match_id = m.id)
+              AS has_speech
+       FROM matches m WHERE m.id = $1`, [matchId],
   );
-  return { status: scored.rows[0]?.scored_at ? "unavailable" : "pending" };
+  const state = scored.rows[0];
+  const uploadWindowClosed = state?.ended_at &&
+    Date.now() - new Date(state.ended_at).getTime() >= 35_000;
+  return { status: state?.scored_at || (uploadWindowClosed && !state.has_speech)
+    ? "unavailable" : "pending" };
 }
