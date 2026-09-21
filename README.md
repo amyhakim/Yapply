@@ -26,8 +26,8 @@ the server continues to use its direct PostgreSQL connection.
 ## What the integration does
 
 - A server-issued, room-scoped LiveKit token lets only match participants join their room. LiveKit carries the human conversation directly. The room is closed when the match ends.
-- The browser reads only its **local** microphone track. An AudioWorklet detects short turns and produces mono 16 kHz PCM WAV clips. The prompted **Pronunciation Battle** can also be recorded on demand.
-- The server validates match membership, clip length, locale, and assessment count before sending a clip to Azure. Scripted attempts use the seeded challenge phrase as reference text; spontaneous turns use unscripted assessment.
+- The browser reads only its **local** microphone track. An AudioWorklet detects short turns and streams mono 16 kHz PCM to the server while the user speaks. Browsers without streaming request support send a completed WAV clip instead. The prompted **Pronunciation Battle** can also be recorded on demand.
+- The server validates match membership, clip length, locale, and assessment count and feeds streamed audio to Azure as it arrives. Scripted attempts use the seeded challenge phrase as reference text; spontaneous turns use unscripted assessment.
 - Azure aggregate scores go into `pronunciation_attempts`; notable word and phoneme errors go into `pronunciation_results`. Azure-recognized text goes into `transcript_turns`. `match_scores` remains for the separate full conversation grader described in the design document.
 - Raw audio is held only while scoring and is discarded. The app does not yet offer saved recordings, even when `save_audio_opt_in` is true.
 - Match transcripts are marked for deletion after 30 days. Schedule `npm run db:purge-transcripts` daily to clear expired text; pronunciation scores remain.

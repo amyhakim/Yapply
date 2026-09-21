@@ -1,5 +1,72 @@
 export const TARGET_SAMPLE_RATE = 16_000;
 
+// Produce the same PCM samples as encodeWav, one microphone frame at a time.
+// Keep the last input sample so interpolation stays continuous across frames.
+export class Pcm16StreamEncoder {
+  private inputCount = 0;
+  private outputCount = 0;
+  private tail = new Float32Array(0);
+
+  constructor(private readonly inputRate: number) {
+    if (!Number.isFinite(inputRate) || inputRate < TARGET_SAMPLE_RATE) {
+      throw new Error("Unsupported microphone sample rate");
+    }
+  }
+
+  write(samples: Float32Array): Uint8Array {
+    const start = this.inputCount;
+    const end = start + samples.length;
+    const values: number[] = [];
+    const target = Math.floor(end * TARGET_SAMPLE_RATE / this.inputRate);
+    const sampleAt = (index: number) => index < start
+      ? this.tail[index - (start - this.tail.length)]
+      : samples[index - start];
+    while (this.outputCount < target &&
+      (this.outputCount * this.inputRate / TARGET_SAMPLE_RATE) + 1 < end) {
+      const source = this.outputCount * this.inputRate / TARGET_SAMPLE_RATE;
+      const left = Math.floor(source);
+      const fraction = source - left;
+      const first = sampleAt(left);
+      const second = sampleAt(left + 1);
+      values.push(Math.max(-1, Math.min(1, first * (1 - fraction) + second * fraction)));
+      this.outputCount++;
+    }
+    const keep = Math.ceil(this.inputRate / TARGET_SAMPLE_RATE) + 2;
+    const joined = new Float32Array(this.tail.length + samples.length);
+    joined.set(this.tail);
+    joined.set(samples, this.tail.length);
+    this.tail = joined.slice(-keep);
+    this.inputCount = end;
+    return pcmBytes(values);
+  }
+
+  finish(): Uint8Array {
+    const values: number[] = [];
+    const outputLength = Math.floor(this.inputCount * TARGET_SAMPLE_RATE / this.inputRate);
+    while (this.outputCount < outputLength) {
+      const source = this.outputCount * this.inputRate / TARGET_SAMPLE_RATE;
+      const left = Math.floor(source);
+      const fraction = source - left;
+      const first = this.tail[left - (this.inputCount - this.tail.length)];
+      const second = left + 1 < this.inputCount
+        ? this.tail[left + 1 - (this.inputCount - this.tail.length)] : first;
+      values.push(Math.max(-1, Math.min(1, first * (1 - fraction) + second * fraction)));
+      this.outputCount++;
+    }
+    return pcmBytes(values);
+  }
+}
+
+function pcmBytes(samples: number[]): Uint8Array {
+  const bytes = new Uint8Array(samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  for (let i = 0; i < samples.length; i++) {
+    const sample = samples[i];
+    view.setInt16(i * 2, sample < 0 ? sample * 32768 : sample * 32767, true);
+  }
+  return bytes;
+}
+
 // Convert browser Float32 PCM to mono 16 kHz PCM WAV for Azure Speech.
 export function encodeWav(chunks: Float32Array[], inputRate: number): Uint8Array {
   if (!Number.isFinite(inputRate) || inputRate < TARGET_SAMPLE_RATE) {

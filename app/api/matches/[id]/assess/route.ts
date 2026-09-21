@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { assessWav } from "@/lib/azure";
+import { assessPcmStream, assessWav, InvalidPcmStreamError } from "@/lib/azure";
 import { db, transaction } from "@/lib/db";
 import { ApiError, jsonError } from "@/lib/http";
 import { getMatch } from "@/lib/matches";
@@ -26,16 +26,19 @@ export async function POST(request: NextRequest, context: Context) {
     if (!match.azure_locale) throw new ApiError(422, "Pronunciation is unavailable for this language");
     const declaredSize = Number(request.headers.get("content-length"));
     if (declaredSize > MAX_BYTES + 10_000) throw new ApiError(413, "Audio clip is too large");
-    const form = await request.formData();
-    const mode = form.get("mode");
-    const id = form.get("attemptId");
-    const atMs = Number(form.get("atMs"));
-    const file = form.get("audio");
+    const streaming = request.headers.get("content-type") === "application/octet-stream";
+    const form = streaming ? null : await request.formData();
+    const mode = streaming ? request.headers.get("x-assessment-mode") : form!.get("mode");
+    const id = streaming ? request.headers.get("x-attempt-id") : form!.get("attemptId");
+    const atValue = streaming ? request.headers.get("x-at-ms") : form!.get("atMs");
+    const atMs = Number(atValue);
+    const file = streaming ? null : form!.get("audio");
     if ((mode !== "scripted" && mode !== "unscripted") ||
         typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id) ||
+        atValue === null ||
         !Number.isInteger(atMs) || atMs < 0 ||
         atMs > match.duration_secs * 1000 + 2_000 ||
-        !(file instanceof File) || file.size > MAX_BYTES || file.size < 44) {
+        (streaming ? !request.body : !(file instanceof File) || file.size > MAX_BYTES || file.size < 44)) {
       throw new ApiError(400, "Invalid assessment request");
     }
     if (mode === "scripted" && !match.challenge_prompt) {
@@ -48,12 +51,15 @@ export async function POST(request: NextRequest, context: Context) {
     if (Number(usage.rows[0].count) >= 40) {
       throw new ApiError(429, "Assessment limit reached for this match");
     }
-    const wav = new Uint8Array(await file.arrayBuffer());
-    let durationMs: number;
-    try { durationMs = wavDurationMs(wav); }
-    catch { throw new ApiError(400, "Expected mono 16 kHz PCM WAV"); }
-    if (durationMs < 500 || durationMs > 20_000) {
-      throw new ApiError(400, "Audio clip must be between 0.5 and 20 seconds");
+    let wav: Uint8Array | null = null;
+    let durationMs = 1; // A stream's final duration is known only after its last chunk.
+    if (!streaming) {
+      wav = new Uint8Array(await (file as File).arrayBuffer());
+      try { durationMs = wavDurationMs(wav); }
+      catch { throw new ApiError(400, "Expected mono 16 kHz PCM WAV"); }
+      if (durationMs < 500 || durationMs > 20_000) {
+        throw new ApiError(400, "Audio clip must be between 0.5 and 20 seconds");
+      }
     }
     const reference = mode === "scripted" ? match.challenge_prompt : null;
     const claim = await db().query(
@@ -65,15 +71,27 @@ export async function POST(request: NextRequest, context: Context) {
     );
     if (!claim.rowCount) throw new ApiError(409, "This attempt has already been submitted");
     claimedId = id;
-    const assessed = await assessWav(wav, match.azure_locale, reference);
+    let assessed;
+    if (streaming) {
+      try {
+        const streamed = await assessPcmStream(request.body!, match.azure_locale, reference);
+        assessed = streamed.assessment;
+        durationMs = streamed.durationMs;
+      } catch (error) {
+        if (error instanceof InvalidPcmStreamError) throw new ApiError(400, error.message);
+        throw error;
+      }
+    } else {
+      assessed = await assessWav(wav!, match.azure_locale, reference);
+    }
     await transaction(async (client) => {
       await client.query(
         `UPDATE pronunciation_attempts SET status = 'complete',
            recognized_text = $2, pron_score = $3, accuracy = $4,
-           fluency = $5, prosody = $6, completed_at = now()
+           fluency = $5, prosody = $6, duration_ms = $7, completed_at = now()
          WHERE id = $1`,
         [id, assessed.recognizedText, assessed.pronScore, assessed.accuracy,
-          assessed.fluency, assessed.prosody],
+          assessed.fluency, assessed.prosody, durationMs],
       );
       if (assessed.recognizedText) {
         const participant = await client.query<{ id: string }>(
