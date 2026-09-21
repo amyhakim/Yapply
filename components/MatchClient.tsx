@@ -143,14 +143,13 @@ export function MatchClient({ matchId }: { matchId: string }) {
 
   return <div className="app-shell friend-page">
     <header className="header"><Link className="wordmark" href="/">yapply<span className="logo-flower">✳</span></Link><span>
-      {match.language_code === "es" ? "Spanish" : "English"} · Private friend room</span><Link href="/">Back to lobby</Link></header>
+      {match.language_code === "es" ? "Spanish" : "English"} · Conversation Room</span><Link href="/">Back to lobby</Link></header>
     <main>
     <div className="page-heading">
       <div><p className="eyebrow">{match.status}</p><h1>Practice together</h1></div>
-      <span className="session-label"><span className="little-dot"/> FRIEND PRACTICE</span>
     </div>
     <section className="room solo-room" aria-label="Friend speaking challenge">
-    <div className="room-top"><div className="language"><strong>{match.language_code === 'es' ? 'Spanish' : 'English'}</strong><span className="level">Friend challenge</span></div>
+    <div className="room-top"><div className="language"><strong>{match.language_code === 'es' ? 'Spanish' : 'English'}</strong></div>
       <span className="timer">{
         `${Math.floor((remaining ?? match.duration_secs) / 60)}:${String((remaining ?? match.duration_secs) % 60).padStart(2, "0")}`}</span>
     </div>
@@ -161,7 +160,7 @@ export function MatchClient({ matchId }: { matchId: string }) {
     </section>
     <div className="challenge"><div className="challenge-icon"><Sparkles size={28}/></div><div className="challenge-copy"><div className="eyebrow">YOUR SPEAKING CHALLENGE</div><h2>{match.challenge_prompt ?? 'Tell your partner about your hometown.'}</h2><p>Practice the phrase together, then keep the conversation going.</p></div><span className="challenge-doodle" aria-hidden="true">✿</span></div>
     <div className="friend-actions">
-    {match.status === "queued" && <p>Share the room code with a friend. The call opens while you wait.</p>}
+    {match.status === "queued" && <p>Share the room code with a friend. The call is open while you wait.</p>}
     {match.status === "matched" && match.seat === 1 && <>
       <button disabled={busy || !connection || !partnerInCall}
         onClick={() => void updateStatus("start")}>Start match</button>

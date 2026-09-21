@@ -60,7 +60,7 @@ export function LiveCall({ onLeave }: { onLeave: () => void }) {
         {remote && isTrackReference(remote) && !remote.publication.isMuted ? <VideoTrack trackRef={remote} className="portrait"/>
           : <div className="solo-center"><span className="solo-flower">✿</span><h2>{partners[0] ? 'Your partner’s camera is off' : 'Waiting for your partner'}</h2><p>{partners[0] ? 'You can speak with your microphones on.' : 'Share the room code so they can join.'}</p></div>}
         <div className="video-top"><span className="live-badge"><span/>{state === ConnectionState.Connected ? 'FRIEND PRACTICE' : state.toUpperCase()}</span><button className="glass-button" aria-label={expanded ? 'Minimize video' : 'Expand video'} onClick={() => setExpanded(!expanded)}><Maximize2 size={18}/></button></div>
-        <div className="video-bottom"><div className="partner-name">{partners[0]?.name ?? 'Your partner'}<small>Private friend room</small></div></div>
+        <div className="video-bottom"><div className="partner-name">{partners[0]?.name ?? 'Your partner'}<small>Conversation Room</small></div></div>
       </div>}/>
     <PracticeControls cameraOn={isCameraEnabled} cameraBusy={pending !== null} onCamera={() => void toggle('camera')}
       micOn={isMicrophoneEnabled} micBusy={pending !== null} onMic={() => void toggle('microphone')}
