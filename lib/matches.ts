@@ -51,6 +51,9 @@ export async function getMatch(matchId: string, userId: string): Promise<MatchVi
   return result.rows[0];
 }
 
+// Set explicitly so existing databases with a 120-second default use the current rules.
+export const MATCH_DURATION_SECS = 30;
+
 export async function createMatch(userId: string, language: string): Promise<string> {
   if (!/^(en|es)$/.test(language)) throw new ApiError(400, "Choose English or Spanish");
   return transaction(async (client) => {
@@ -67,9 +70,9 @@ export async function createMatch(userId: string, language: string): Promise<str
     const code = randomBytes(5).toString("hex").toUpperCase();
     await client.query(
       `INSERT INTO matches (id, match_type, mode, language_code, level, challenge_id,
-                            livekit_room, status, purge_after)
-       VALUES ($1, 'friend', 'challenge', $2, 'A1', $3, $4, 'queued', now() + interval '30 days')`,
-      [id, language, challenge.rows[0].id, `match-${id}`],
+                            livekit_room, status, duration_secs, purge_after)
+       VALUES ($1, 'friend', 'challenge', $2, 'A1', $3, $4, 'queued', $5, now() + interval '30 days')`,
+      [id, language, challenge.rows[0].id, `match-${id}`, MATCH_DURATION_SECS],
     );
     await client.query(
       "INSERT INTO match_participants (match_id, seat, user_id) VALUES ($1, 1, $2)",
