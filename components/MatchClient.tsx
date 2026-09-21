@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { LiveKitRoom } from "@livekit/components-react";
 import { api } from "@/lib/client-api";
-import { conversationScore } from "@/lib/conversation-score";
 import { SpeechCapture } from "./SpeechCapture";
 import { LiveCall } from "./LiveCall";
+import { MatchScore } from "./MatchScore";
 import { Sparkles } from 'lucide-react';
 
 type Match = {
@@ -30,10 +30,9 @@ export function MatchClient({ matchId }: { matchId: string }) {
   const [receivedPerf, setReceivedPerf] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [checkingResults, setCheckingResults] = useState(false);
-  // Lets the clip recorder send whatever it is still capturing when the call ends or drops.
-  const finishCurrentRef = useRef<(() => void) | null>(null);
   const handleCallError = useCallback((caught: Error) => setError(caught.message), []);
+  const [checkingResults, setCheckingResults] = useState(false);
+  const finishCurrentRef = useRef<(() => void) | null>(null);
   const handleDisconnected = useCallback(() => {
     finishCurrentRef.current?.();
     setConnection(null);
@@ -77,7 +76,6 @@ export function MatchClient({ matchId }: { matchId: string }) {
 
   useEffect(() => {
     if (match?.status !== "complete" || !match.ended_at) return;
-    // Keep checking for a minute after the round: clips still uploading finish scoring late.
     const deadline = new Date(match.ended_at).getTime() + 60_000;
     setCheckingResults(Date.now() < deadline);
     void refreshResults().catch(() => {});
@@ -121,8 +119,6 @@ export function MatchClient({ matchId }: { matchId: string }) {
 
   if (!match) return <main className="match-page live-page"><Link href="/">Back to lobby</Link><p>Loading match…</p>
     {error && <p className="error" role="alert">{error}</p>}</main>;
-
-  const score = conversationScore(attempts);
 
   return <div className="app-shell friend-page">
     <header className="header"><Link className="wordmark" href="/">yapply<span className="logo-flower">✳</span></Link><span>
@@ -174,16 +170,12 @@ export function MatchClient({ matchId }: { matchId: string }) {
     </section>
     {match.status === "playing" &&
       <p className="muted">Your results and conversation score appear when the match ends.</p>}
+    {match.status === "complete" && <MatchScore matchId={matchId} endedAt={match.ended_at}/>}
     {match.status === "complete" && <section className="panel">
       <h2>Your assessment results</h2>
-      {score !== null && <div className="result">
-        <span className="eyebrow">Conversation score</span>
-        <p><strong>{score}</strong> / 100</p>
-        <p className="muted">The average of your fluency and accuracy scores.</p>
-      </div>}
       {attempts.length === 0 ? <p className="muted">{checkingResults
         ? "No attempt saved yet. Checking for final pronunciation feedback…" :
-        "No pronunciation attempts were saved for this match. In your next match, start pronunciation analysis and speak before the match ends."}</p> :
+        "No pronunciation attempt was saved for this match. In your next match, turn on the microphone and check that the Pronunciation panel says Listening before you speak."}</p> :
         <div className="attempts">{attempts.map((attempt) =>
           <article className="attempt" key={attempt.id}>
             <div><span className="eyebrow">{attempt.mode}</span><strong>

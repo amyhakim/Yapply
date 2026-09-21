@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { useRoomContext } from "@livekit/components-react";
+import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import { encodeWav, Pcm16StreamEncoder } from "@/lib/wav";
 import { api } from "@/lib/client-api";
@@ -39,6 +39,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
   finishCurrentRef: RefObject<(() => void) | null>;
 }) {
   const room = useRoomContext();
+  const { isMicrophoneEnabled } = useLocalParticipant();
   const [listening, setListening] = useState(false);
   const [manual, setManual] = useState(false);
   const [pending, setPending] = useState(0);
@@ -51,6 +52,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
   const pendingRef = useRef(0);
   const activeStreamsRef = useRef(new Set<StreamingAttempt>());
   const startingRef = useRef(false);
+  const autoStartedTrackRef = useRef<MediaStreamTrack | null>(null);
   const mountedRef = useRef(true);
   onSavedRef.current = onSaved;
 
@@ -82,7 +84,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
   }, [matchId]);
 
   const startStream = useCallback((sampleRate: number, mode: CaptureMode,
-    atMs: number): StreamingAttempt | null => {
+    atMs: number, chunks: Float32Array[]): StreamingAttempt | null => {
     if (!supportsStreamingUploads() || pendingRef.current >= 2) return null;
     const encoder = new Pcm16StreamEncoder(sampleRate);
     const abort = new AbortController();
@@ -92,6 +94,15 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
     });
     let open = true;
     let cancelled = false;
+    let finished = false;
+    let settled = false;
+    let failed = false;
+    let retried = false;
+    const retryAsWav = () => {
+      if (!failed || !settled || !finished || cancelled || retried) return;
+      retried = true;
+      void submit(chunks, sampleRate, mode, atMs);
+    };
     const attempt: StreamingAttempt = {
       write(samples) {
         if (!open) return;
@@ -104,7 +115,9 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
         if (tail.length) controller.enqueue(tail);
         controller.close();
         open = false;
+        finished = true;
         activeStreamsRef.current.delete(attempt);
+        retryAsWav();
       },
       cancel() {
         if (!open) return;
@@ -131,13 +144,19 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
       setError(null);
       onSavedRef.current();
     }).catch((caught) => {
-      if (!cancelled) setError(caught instanceof Error ? caught.message : "Assessment failed");
+      if (!cancelled) {
+        failed = true;
+        setError(caught instanceof Error ? `Streaming failed; retrying audio: ${caught.message}` :
+          "Streaming failed; retrying audio");
+      }
     }).finally(() => {
       pendingRef.current--;
       setPending(pendingRef.current);
+      settled = true;
+      retryAsWav();
     });
     return attempt;
-  }, [matchId]);
+  }, [matchId, submit]);
 
   const stopListening = useCallback(() => {
     finishCurrentRef.current = null;
@@ -279,7 +298,8 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
           if (loudFrames >= 2) {
             utterance = [...preRoll];
             utteranceAt = Math.max(0, matchTimeMs() - Math.round(preRoll.length * frameMs));
-            utteranceStream = startStream(context!.sampleRate, "unscripted", utteranceAt);
+            utteranceStream = startStream(context!.sampleRate, "unscripted", utteranceAt,
+              utterance);
             for (const frame of preRoll) utteranceStream?.write(frame);
             capturedMs = utterance.length * frameMs;
             preRoll.length = 0;
@@ -302,6 +322,18 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
   }, [room, serverNow, startedAt, receivedPerf, startStream, submit, stopListening,
     finishCurrentRef]);
 
+  useEffect(() => {
+    const track = room.localParticipant.getTrackPublication(Track.Source.Microphone)
+      ?.audioTrack?.mediaStreamTrack;
+    if (!isMicrophoneEnabled || !track || track.readyState !== "live") {
+      autoStartedTrackRef.current = null;
+      return;
+    }
+    if (autoStartedTrackRef.current === track) return;
+    autoStartedTrackRef.current = track;
+    void startListening();
+  }, [room, isMicrophoneEnabled, startListening]);
+
   const startScripted = () => {
     if (!streamRef.current) return;
     manualRef.current = {
@@ -311,7 +343,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
       stream: null,
     };
     manualRef.current.stream = startStream(streamRef.current.context.sampleRate,
-      "scripted", manualRef.current.atMs);
+      "scripted", manualRef.current.atMs, manualRef.current.chunks);
     setManual(true);
   };
 
@@ -329,7 +361,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
 
   return <section className="panel speech-panel">
     <h2>Pronunciation</h2>
-    <p>Only your microphone is analyzed. Short clips are sent to Azure and discarded after scoring.</p>
+    <p>With your call microphone on, short clips are analyzed for scoring and discarded afterward.</p>
     {!listening ?
       <button onClick={() => void startListening()}>Start pronunciation analysis</button> :
       <button className="secondary" onClick={stopListening}>Stop analysis</button>}

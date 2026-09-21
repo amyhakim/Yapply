@@ -4,9 +4,17 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/client-api';
 import type { ScoreResponse } from '@/lib/scores';
 
-export function MatchScore({ matchId }: { matchId: string }) {
+export function MatchScore({ matchId, endedAt }: { matchId: string; endedAt: string | null }) {
   const [result, setResult] = useState<ScoreResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [delayed, setDelayed] = useState(false);
+  useEffect(() => {
+    if (!endedAt) return;
+    const remaining = new Date(endedAt).getTime() + 90_000 - Date.now();
+    if (remaining <= 0) { setDelayed(true); return; }
+    const timer = setTimeout(() => setDelayed(true), remaining);
+    return () => clearTimeout(timer);
+  }, [endedAt]);
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -29,7 +37,9 @@ export function MatchScore({ matchId }: { matchId: string }) {
 
   return <section className="panel score-panel" aria-live="polite"><h2>Your conversation score</h2>
     {error && <p className="error" role="alert">{error}</p>}
-    {(!result || result.status === 'pending') && <p>Waiting for your score. The scoring worker processes completed matches; this can take a minute or more. You can return to this room to check again.</p>}
+    {(!result || result.status === 'pending') && <p>{delayed
+      ? 'Conversation scoring is still pending. The scoring service may be unavailable; return later to check again.'
+      : 'Waiting for your conversation score. This usually takes a minute or more.'}</p>}
     {result?.status === 'not_finished' && <p>Your match has not finished yet.</p>}
     {result?.status === 'unavailable' && <p>There wasn’t enough analyzed speech to produce an overall score.</p>}
     {result?.status === 'ready' && result.score && <>
