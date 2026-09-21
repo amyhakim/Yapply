@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { useRoomContext } from "@livekit/components-react";
 import { Track } from "livekit-client";
-import { encodeWav } from "@/lib/wav";
+import { encodeWav, Pcm16StreamEncoder } from "@/lib/wav";
 import { api } from "@/lib/client-api";
 
 type CaptureMode = "scripted" | "unscripted";
@@ -12,15 +12,31 @@ type Result = {
   recognizedText: string;
   mode: CaptureMode;
 };
-type Manual = { chunks: Float32Array[]; atMs: number };
+type StreamingAttempt = {
+  write: (samples: Float32Array) => void;
+  finish: () => void;
+  cancel: () => void;
+};
+type Manual = { chunks: Float32Array[]; atMs: number; stream: StreamingAttempt | null };
 
-export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, prompt, onSaved }: {
+function supportsStreamingUploads(): boolean {
+  try {
+    const request = new Request(window.location.href, {
+      method: "POST", body: new ReadableStream(), duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    return request.body !== null;
+  } catch { return false; }
+}
+
+export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, prompt, onSaved,
+  finishCurrentRef }: {
   matchId: string;
   startedAt: string;
   serverNow: string;
   receivedPerf: number;
   prompt: string | null;
   onSaved: () => void;
+  finishCurrentRef: RefObject<(() => void) | null>;
 }) {
   const room = useRoomContext();
   const [listening, setListening] = useState(false);
@@ -33,6 +49,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
   const manualRef = useRef<Manual | null>(null);
   const onSavedRef = useRef(onSaved);
   const pendingRef = useRef(0);
+  const activeStreamsRef = useRef(new Set<StreamingAttempt>());
   const startingRef = useRef(false);
   const mountedRef = useRef(true);
   onSavedRef.current = onSaved;
@@ -64,7 +81,67 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
     }
   }, [matchId]);
 
+  const startStream = useCallback((sampleRate: number, mode: CaptureMode,
+    atMs: number): StreamingAttempt | null => {
+    if (!supportsStreamingUploads() || pendingRef.current >= 2) return null;
+    const encoder = new Pcm16StreamEncoder(sampleRate);
+    const abort = new AbortController();
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({
+      start(value) { controller = value; },
+    });
+    let open = true;
+    let cancelled = false;
+    const attempt: StreamingAttempt = {
+      write(samples) {
+        if (!open) return;
+        const bytes = encoder.write(samples);
+        if (bytes.length) controller.enqueue(bytes);
+      },
+      finish() {
+        if (!open) return;
+        const tail = encoder.finish();
+        if (tail.length) controller.enqueue(tail);
+        controller.close();
+        open = false;
+        activeStreamsRef.current.delete(attempt);
+      },
+      cancel() {
+        if (!open) return;
+        cancelled = true;
+        open = false;
+        activeStreamsRef.current.delete(attempt);
+        abort.abort();
+      },
+    };
+    activeStreamsRef.current.add(attempt);
+    pendingRef.current++;
+    setPending(pendingRef.current);
+    void api<Result>(`/api/matches/${matchId}/assess`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "x-attempt-id": crypto.randomUUID(),
+        "x-assessment-mode": mode,
+        "x-at-ms": String(atMs),
+      },
+      body, duplex: "half", signal: abort.signal,
+    } as RequestInit & { duplex: "half" }).then((result) => {
+      setLastResult(result);
+      setError(null);
+      onSavedRef.current();
+    }).catch((caught) => {
+      if (!cancelled) setError(caught instanceof Error ? caught.message : "Assessment failed");
+    }).finally(() => {
+      pendingRef.current--;
+      setPending(pendingRef.current);
+    });
+    return attempt;
+  }, [matchId]);
+
   const stopListening = useCallback(() => {
+    finishCurrentRef.current = null;
+    for (const attempt of activeStreamsRef.current) attempt.cancel();
     const stream = streamRef.current;
     if (stream) {
       stream.node.port.onmessage = null;
@@ -77,7 +154,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
     manualRef.current = null;
     setManual(false);
     setListening(false);
-  }, []);
+  }, [finishCurrentRef]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -120,39 +197,75 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
       const preRollCount = Math.ceil(450 / frameMs);
       const preRoll: Float32Array[] = [];
       let utterance: Float32Array[] | null = null;
+      let utteranceStream: StreamingAttempt | null = null;
       let utteranceAt = 0;
       let loudFrames = 0;
       let quietMs = 0;
       let capturedMs = 0;
       const flush = () => {
-        if (utterance && capturedMs >= 600) {
-          void submit(utterance, context!.sampleRate, "unscripted", utteranceAt);
+        if (utterance && capturedMs >= 500) {
+          if (utteranceStream) utteranceStream.finish();
+          else void submit(utterance, context!.sampleRate, "unscripted", utteranceAt);
+        } else {
+          utteranceStream?.cancel();
         }
         utterance = null;
+        utteranceStream = null;
         capturedMs = 0;
         quietMs = 0;
         loudFrames = 0;
       };
 
-      node.port.onmessage = (event: MessageEvent<Float32Array>) => {
-        if (publication.isMuted || localTrack.mediaStreamTrack.readyState !== "live") {
-          utterance = null;
+      // End a recording before MatchClient closes the LiveKit room. Closing a
+      // request body lets a pending assessment finish even after this component unmounts.
+      finishCurrentRef.current = () => {
+        const attempt = manualRef.current;
+        if (attempt) {
           manualRef.current = null;
+          setManual(false);
+          if (attempt.chunks.length * frameMs >= 500) {
+            if (attempt.stream) attempt.stream.finish();
+            else void submit(attempt.chunks, context!.sampleRate, "scripted", attempt.atMs);
+          } else {
+            attempt.stream?.cancel();
+          }
+        } else {
+          flush();
+        }
+        stopListening();
+      };
+
+      node.port.onmessage = (event: MessageEvent<Float32Array>) => {
+        if (localTrack.mediaStreamTrack.readyState !== "live") {
+          finishCurrentRef.current?.();
+          return;
+        }
+        if (publication.isMuted) {
+          utterance = null;
+          utteranceStream?.cancel();
+          utteranceStream = null;
+          manualRef.current?.stream?.cancel();
+          manualRef.current = null;
+          setManual(false);
           preRoll.length = 0;
           return;
         }
         const samples = event.data;
         if (manualRef.current) {
           utterance = null;
+          utteranceStream?.cancel();
+          utteranceStream = null;
           capturedMs = 0;
           quietMs = 0;
           preRoll.length = 0;
           manualRef.current.chunks.push(samples);
+          manualRef.current.stream?.write(samples);
           if (manualRef.current.chunks.length * frameMs >= 18_000) {
             const attempt = manualRef.current;
             manualRef.current = null;
             setManual(false);
-            void submit(attempt.chunks, context!.sampleRate, "scripted", attempt.atMs);
+            if (attempt.stream) attempt.stream.finish();
+            else void submit(attempt.chunks, context!.sampleRate, "scripted", attempt.atMs);
           }
           return;
         }
@@ -166,6 +279,8 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
           if (loudFrames >= 2) {
             utterance = [...preRoll];
             utteranceAt = Math.max(0, matchTimeMs() - Math.round(preRoll.length * frameMs));
+            utteranceStream = startStream(context!.sampleRate, "unscripted", utteranceAt);
+            for (const frame of preRoll) utteranceStream?.write(frame);
             capturedMs = utterance.length * frameMs;
             preRoll.length = 0;
             quietMs = 0;
@@ -173,6 +288,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
           return;
         }
         utterance.push(samples);
+        utteranceStream?.write(samples);
         capturedMs += frameMs;
         quietMs = loud ? 0 : quietMs + frameMs;
         if (quietMs >= 850 || capturedMs >= 18_000) flush();
@@ -183,7 +299,8 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
     } finally {
       startingRef.current = false;
     }
-  }, [room, serverNow, startedAt, receivedPerf, submit]);
+  }, [room, serverNow, startedAt, receivedPerf, startStream, submit, stopListening,
+    finishCurrentRef]);
 
   const startScripted = () => {
     if (!streamRef.current) return;
@@ -191,7 +308,10 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
       chunks: [], atMs: Math.max(0, Math.round(
         new Date(serverNow).getTime() - new Date(startedAt).getTime() +
         performance.now() - receivedPerf)),
+      stream: null,
     };
+    manualRef.current.stream = startStream(streamRef.current.context.sampleRate,
+      "scripted", manualRef.current.atMs);
     setManual(true);
   };
 
@@ -200,7 +320,10 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
     manualRef.current = null;
     setManual(false);
     if (attempt && streamRef.current) {
-      void submit(attempt.chunks, streamRef.current.context.sampleRate, "scripted", attempt.atMs);
+      if (attempt.chunks.length * 2048 / streamRef.current.context.sampleRate < 0.5) {
+        attempt.stream?.cancel();
+      } else if (attempt.stream) attempt.stream.finish();
+      else void submit(attempt.chunks, streamRef.current.context.sampleRate, "scripted", attempt.atMs);
     }
   };
 
@@ -218,8 +341,7 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
         <button onClick={startScripted}>Record phrase</button> :
         <button onClick={stopScripted}>Finish phrase</button>}
     </div>}
-    {lastResult && <p className="result">Latest {lastResult.mode} score: <strong>
-      {lastResult.pronScore ?? "—"}</strong> / 100 · “{lastResult.recognizedText}”</p>}
+    {lastResult && <p className="result">Clip analyzed. Your results appear when the match ends.</p>}
     {error && <p className="error" role="alert">{error}</p>}
   </section>;
 }
