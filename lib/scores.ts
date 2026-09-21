@@ -1,5 +1,6 @@
 import { conversationBreakdown, type ClipScores } from "./conversation-score";
 import { db } from "./db";
+import { applyLanguagePenalty, WRONG_LANGUAGE_PENALTY } from "./language-id";
 
 // See backend/README.md for the optional scoring worker that adds XP and language feedback.
 export type ScoreStatus = "not_finished" | "pending" | "unavailable" | "ready";
@@ -30,6 +31,15 @@ export interface FeedbackRow {
   rank: number | null;
 }
 
+export type Outcome = "win" | "loss" | "tie";
+
+/** Who won: the higher conversation score, after any points docked for the wrong language. */
+export interface MatchResult {
+  outcome: Outcome;
+  yourScore: number;
+  opponentScore: number;
+}
+
 // Shape follows the design document's example score object (section 17).
 export interface ScoreView {
   /** The conversation score. */
@@ -50,6 +60,10 @@ export interface ScoreView {
     improve: { kind: string; original: string | null; correction: string | null; explanation: string | null }[];
     strongMoments: { text: string; reason: string | null }[];
   };
+  /** Present when clips in the wrong language cost this player points; `overall` already has them taken off. */
+  languagePenalty?: { clips: number; points: number };
+  /** Present once both players' scores are known. */
+  matchResult?: MatchResult;
 }
 
 export interface ScoreResponse {
@@ -91,6 +105,12 @@ export function toScoreView(row: ScoreRow, feedback: FeedbackRow[]): ScoreView {
   };
 }
 
+const NO_EXTRAS = {
+  challenge: { completed: false, bonusXp: 0 },
+  xpEarned: 0,
+  feedback: { improve: [], strongMoments: [] },
+} satisfies Pick<ScoreView, "challenge" | "xpEarned" | "feedback">;
+
 /**
  * The conversation score players see: the average of their fluency and accuracy scores from
  * Azure. It needs no scoring worker. If the worker has also scored the match, its XP,
@@ -103,15 +123,19 @@ export function azureScoreView(clips: ClipScores[], worker: ScoreView | null): S
   const dimensions: Record<string, number | null> = {};
   if (fluency !== null) dimensions.fluency = fluency;
   if (accuracy !== null) dimensions.accuracy = accuracy;
-  return {
-    ...(worker ?? {
-      challenge: { completed: false, bonusXp: 0 },
-      xpEarned: 0,
-      feedback: { improve: [], strongMoments: [] },
-    }),
-    overall: score,
-    dimensions,
-  };
+  return { ...(worker ?? NO_EXTRAS), overall: score, dimensions };
+}
+
+/** A player with nothing scored (silent, or a dead microphone) has a conversation score of 0. */
+export function noSpeechScoreView(worker: ScoreView | null): ScoreView {
+  return { ...(worker ?? NO_EXTRAS), overall: 0, dimensions: {} };
+}
+
+/** Higher conversation score wins; equal scores are a tie. */
+export function decideOutcome(yourScore: number, opponentScore: number): Outcome {
+  if (yourScore > opponentScore) return "win";
+  if (yourScore < opponentScore) return "loss";
+  return "tie";
 }
 
 const FINISHED = ["complete", "processing", "results"];
@@ -121,8 +145,9 @@ const SETTLE_MS = 8_000;
 const UPLOAD_WINDOW_MS = 35_000;
 
 /**
- * The caller's own score only, and only once the match is over. A player never sees their
- * partner's score, and the caller must already have passed getMatch() so membership is checked.
+ * The caller's own score and whether they won, and only once the match is over. The caller must
+ * already have passed getMatch() so membership is checked. The result is decided from both
+ * players' conversation scores, so it waits until neither player has a clip still being scored.
  */
 export async function getScoreView(
   matchId: string,
@@ -134,24 +159,27 @@ export async function getScoreView(
   const state = await db().query<{
     scored_at: Date | null; ended_at: Date | null; clips_in_flight: boolean;
   }>(
+    // A clip stuck 'processing' for minutes (e.g. a crashed request) must not block results forever.
     `SELECT m.scored_at, m.ended_at,
             EXISTS (SELECT 1 FROM pronunciation_attempts a
-                     WHERE a.match_id = m.id AND a.user_id = $2 AND a.status = 'processing')
-              AS clips_in_flight
-       FROM matches m WHERE m.id = $1`, [matchId, userId],
+                     WHERE a.match_id = m.id AND a.status = 'processing'
+                       AND a.created_at > now() - interval '2 minutes') AS clips_in_flight
+       FROM matches m WHERE m.id = $1`, [matchId],
   );
   const info = state.rows[0];
   const sinceEnd = info?.ended_at ? Date.now() - new Date(info.ended_at).getTime() : null;
 
-  // A clip is still being scored: showing a number now would leave it out.
+  // Someone's clip is still being scored: a number now would leave it out.
   if (info?.clips_in_flight) return { status: "pending" };
 
-  const clips = await db().query<ClipScores>(
+  const clipsOf = (who: "me" | "opponent") => db().query<ClipScores>(
     `SELECT status, accuracy::float8 AS accuracy, fluency::float8 AS fluency
        FROM pronunciation_attempts
-      WHERE match_id = $1 AND user_id = $2 AND status = 'complete'`,
+      WHERE match_id = $1 AND status = 'complete' AND user_id ${who === "me" ? "=" : "<>"} $2`,
     [matchId, userId],
   );
+  const [mine, theirs] = [(await clipsOf("me")).rows, (await clipsOf("opponent")).rows];
+
   const scores = await db().query<ScoreRow>(
     `SELECT overall::float8 AS overall, conversation::float8 AS conversation,
             fluency::float8 AS fluency, pronunciation::float8 AS pronunciation,
@@ -171,14 +199,44 @@ export async function getScoreView(
     worker = toScoreView(scores.rows[0], feedback.rows);
   }
 
-  const azure = azureScoreView(clips.rows, worker);
-  if (azure) {
-    return sinceEnd !== null && sinceEnd < SETTLE_MS
-      ? { status: "pending" } : { status: "ready", score: azure };
+  const myScore = conversationBreakdown(mine).score;
+  const opponentScore = conversationBreakdown(theirs).score;
+  if (myScore !== null || opponentScore !== null) {
+    if (sinceEnd !== null && sinceEnd < SETTLE_MS) return { status: "pending" };
+    // Clips in the wrong language cost each player points; the winner is decided after that.
+    const penalties = await db().query<{ mine: number; theirs: number }>(
+      `SELECT count(*) FILTER (WHERE p.user_id = $2)::int AS mine,
+              count(*) FILTER (WHERE p.user_id <> $2)::int AS theirs
+         FROM challenge_events e
+         JOIN match_participants p ON p.id = e.participant_id
+        WHERE e.match_id = $1 AND e.event_type = 'wrong_language_clip'`,
+      [matchId, userId],
+    );
+    const myWrongClips = penalties.rows[0]?.mine ?? 0;
+    const theirWrongClips = penalties.rows[0]?.theirs ?? 0;
+    const base = azureScoreView(mine, worker) ?? noSpeechScoreView(worker);
+    const view: ScoreView = myWrongClips > 0
+      ? {
+        ...base, overall: applyLanguagePenalty(base.overall, myWrongClips),
+        languagePenalty: { clips: myWrongClips, points: WRONG_LANGUAGE_PENALTY * myWrongClips },
+      }
+      : base;
+    const opponent = applyLanguagePenalty(opponentScore ?? 0, theirWrongClips);
+    return {
+      status: "ready",
+      score: {
+        ...view,
+        matchResult: {
+          outcome: decideOutcome(view.overall, opponent),
+          yourScore: view.overall,
+          opponentScore: opponent,
+        },
+      },
+    };
   }
   if (worker) return { status: "ready", score: worker };
-  // Nothing scored: report it once the upload window has closed, so a match with no usable
-  // speech does not look as though it is still being graded.
+  // Nobody has anything scored: report it once the upload window has closed, so a match with no
+  // usable speech does not look as though it is still being graded.
   const windowClosed = sinceEnd !== null && sinceEnd >= UPLOAD_WINDOW_MS;
   return { status: info?.scored_at || windowClosed ? "unavailable" : "pending" };
 }

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { assessPcmStream, assessWav, InvalidPcmStreamError } from "@/lib/azure";
 import { db, transaction } from "@/lib/db";
 import { ApiError, jsonError } from "@/lib/http";
+import { isOtherLanguage, otherLocaleFor } from "@/lib/language-id";
 import { getMatch } from "@/lib/matches";
 import { requireUser } from "@/lib/session";
 import { wavDurationMs } from "@/lib/wav";
@@ -62,6 +63,10 @@ export async function POST(request: NextRequest, context: Context) {
       }
     }
     const reference = mode === "scripted" ? match.challenge_prompt : null;
+    // Conversation clips are also checked for the wrong language. Reading a set phrase is not.
+    const otherLocale = mode === "unscripted" ? otherLocaleFor(match.azure_locale) : null;
+    const languageCandidates = otherLocale && match.azure_locale
+      ? [match.azure_locale, otherLocale] : undefined;
     const claim = await db().query(
       `INSERT INTO pronunciation_attempts
          (id, match_id, user_id, mode, locale, reference_text, at_ms, duration_ms)
@@ -74,7 +79,8 @@ export async function POST(request: NextRequest, context: Context) {
     let assessed;
     if (streaming) {
       try {
-        const streamed = await assessPcmStream(request.body!, match.azure_locale, reference);
+        const streamed = await assessPcmStream(
+          request.body!, match.azure_locale, reference, languageCandidates);
         assessed = streamed.assessment;
         durationMs = streamed.durationMs;
       } catch (error) {
@@ -82,8 +88,11 @@ export async function POST(request: NextRequest, context: Context) {
         throw error;
       }
     } else {
-      assessed = await assessWav(wav!, match.azure_locale, reference);
+      assessed = await assessWav(wav!, match.azure_locale, reference, languageCandidates);
     }
+    // Azure is confident this clip is in the other language: it costs the player points when the
+    // score is worked out (see getScoreView), and the match carries on.
+    const wrongLanguage = isOtherLanguage(assessed.language, otherLocale);
     await transaction(async (client) => {
       await client.query(
         `UPDATE pronunciation_attempts SET status = 'complete',
@@ -106,6 +115,15 @@ export async function POST(request: NextRequest, context: Context) {
           [matchId, participant.rows[0].id, assessed.recognizedText, match.language_code,
             atMs, atMs + durationMs,
             assessed.recognizedText.trim().split(/\s+/).length],
+        );
+      }
+      if (wrongLanguage) {
+        await client.query(
+          `INSERT INTO challenge_events (match_id, participant_id, event_type, at_ms, payload)
+           VALUES ($1,
+                   (SELECT p.id FROM match_participants p WHERE p.match_id = $1 AND p.user_id = $2::uuid),
+                   'wrong_language_clip', $3, $4::jsonb)`,
+          [matchId, user.id, atMs, JSON.stringify({ attempt_id: id })],
         );
       }
       for (const word of assessed.words) {
@@ -134,6 +152,7 @@ export async function POST(request: NextRequest, context: Context) {
       fluency: assessed.fluency, prosody: assessed.prosody,
       notableWords: assessed.words.filter((word) => word.score < 80 ||
         (word.errorType && word.errorType !== "None")),
+      wrongLanguage,
     });
   } catch (error) {
     if (claimedId) {
