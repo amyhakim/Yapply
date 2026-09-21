@@ -23,6 +23,10 @@ export interface MatchView {
   end_reason_seat: number | null;
 }
 
+// How long a match lasts once started. Set here rather than left to the column default so it does
+// not depend on which version of the schema a database was created with.
+export const MATCH_DURATION_SECS = 30;
+
 export type EndReason = "silent_mic" | "long_pause";
 
 /**
@@ -111,9 +115,9 @@ export async function createMatch(userId: string, language: string): Promise<str
     const code = randomBytes(5).toString("hex").toUpperCase();
     await client.query(
       `INSERT INTO matches (id, match_type, mode, language_code, level, challenge_id,
-                            livekit_room, status, purge_after)
-       VALUES ($1, 'friend', 'challenge', $2, 'A1', $3, $4, 'queued', now() + interval '30 days')`,
-      [id, language, challenge.rows[0].id, `match-${id}`],
+                            livekit_room, status, duration_secs, purge_after)
+       VALUES ($1, 'friend', 'challenge', $2, 'A1', $3, $4, 'queued', $5, now() + interval '30 days')`,
+      [id, language, challenge.rows[0].id, `match-${id}`, MATCH_DURATION_SECS],
     );
     await client.query(
       "INSERT INTO match_participants (match_id, seat, user_id) VALUES ($1, 1, $2)",

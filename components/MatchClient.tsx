@@ -151,8 +151,10 @@ export function MatchClient({ matchId }: { matchId: string }) {
     </div>
     <section className="room solo-room" aria-label="Friend speaking challenge">
     <div className="room-top"><div className="language"><strong>{match.language_code === 'es' ? 'Spanish' : 'English'}</strong><span className="level">Friend challenge</span></div>
-      <span className="timer">{remaining === null ? "2:00" :
-        `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`}</span>
+      <span className="timer">{(() => {
+        const secs = remaining ?? match.duration_secs;
+        return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+      })()}</span>
     </div>
     <section className="room-summary friend-invite">
       <div><span className="muted">Room code</span><strong>{match.room_code}</strong></div>
