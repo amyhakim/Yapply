@@ -31,8 +31,7 @@ export function RoomLobby() {
   }
 
   return <section className="room-lobby" aria-label="Play with a friend" aria-busy={busy}>
-    <div className="lobby-intro"><span className="eyebrow">READY FOR A REAL CONVERSATION?</span>
-      <h2>Grab a friend and start chatting!</h2>
+    <div className="lobby-intro"><h2>Grab a friend and start chatting!</h2>
       <p>Create a private room or enter a friend’s code. When ready, enable your microphone, and camera for a face-to-face experience.</p>
     </div>
     <div className="lobby-forms">
