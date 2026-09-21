@@ -373,7 +373,8 @@ export function SpeechCapture({ matchId, startedAt, serverNow, receivedPerf, pro
         <button onClick={startScripted}>Record phrase</button> :
         <button onClick={stopScripted}>Finish phrase</button>}
     </div>}
-    {lastResult && <p className="result">Clip analyzed. Your results appear when the match ends.</p>}
+    {lastResult && <p className="result">Latest {lastResult.mode} score: <strong>
+      {lastResult.pronScore ?? "—"}</strong> / 100 · “{lastResult.recognizedText}”</p>}
     {error && <p className="error" role="alert">{error}</p>}
   </section>;
 }
