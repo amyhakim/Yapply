@@ -118,7 +118,7 @@ export default function Home() {
       <div className="profile"><span className="streak"><span>✦</span> Welcome back</span><span className="profile-avatar">Y<span/></span></div>
     </header>
     <main>
-      <div className="page-heading"><div><h1>Hola! <span>Learn Spanish</span></h1><p>Strengthen your Spanish skills with daily practice.</p></div><span className="session-label"><span className="little-dot"/> SOLO PRACTICE <span className="demo-label">30 SECONDS</span></span></div>
+      <div className="page-heading"><div><h1>Hola! <span>Learn Spanish</span></h1><p>Strengthen your Spanish skills with daily practice.</p></div></div>
       <RoomLobby/>
       <section className="room solo-room" aria-label="Solo 30-second speaking challenge">
         <div className="room-top"><div className="language"><span className="flag">🇪🇸</span><strong>Spanish</strong><span className="level">Solo challenge</span></div><div className={`timer ${seconds <= 5 ? 'urgent' : ''}`} aria-label={`${seconds} seconds remaining`}><span className="timer-dot"/>0:{String(seconds).padStart(2, '0')}<span> / 0:30</span></div><button className="icon-button" aria-label="About solo practice" aria-expanded={help} onClick={() => setHelp(!help)}><MoreHorizontal size={23}/></button></div>
@@ -137,7 +137,7 @@ export default function Home() {
             <div className="video-bottom"><div className="partner-name">Your speaking space<small>Test your audio and camera <span>·</span> Practice session</small></div><div className="audio-badge"><AudioLines size={21}/></div></div>
           </div>
         }/>
-        <PracticeControls cameraOn={!!camera.stream} cameraBusy={camera.busy} onCamera={() => void camera.toggle()} micOn={playing && !muted} micDisabled={!playing} onMic={toggleMute} hint={hint} onHint={() => setHint(!hint)} onFinish={stop} finishDisabled={!playing} finishLabel="Finish early" status="Solo practice"/>
+        <PracticeControls cameraOn={!!camera.stream} cameraBusy={camera.busy} onCamera={() => void camera.toggle()} micOn={playing && !muted} micDisabled={!playing} onMic={toggleMute} hint={hint} onHint={() => setHint(!hint)} onFinish={stop} finishDisabled={!playing} finishLabel="Finish early"/>
       </section>
     </main>
   </div>;
