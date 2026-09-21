@@ -17,6 +17,42 @@ export interface MatchView {
   participant_count: number;
   room_code: string;
   challenge_prompt: string | null;
+  /** Set when the match ended early because of a rule (see EndReason), else null. */
+  end_reason: EndReason | null;
+  /** Seat of the player who caused the early end. */
+  end_reason_seat: number | null;
+}
+
+export type EndReason = "language_switch" | "silent_mic";
+
+/**
+ * Ends a playing match for both players and closes the call. When an early-end reason is given it
+ * is recorded, with the player responsible, so both screens can say what happened. Returns false
+ * if the match was not playing, e.g. the timer or the other player got there first.
+ */
+export async function endMatch(
+  matchId: string, early?: { reason: EndReason; userId: string },
+): Promise<boolean> {
+  const room = await transaction(async (client) => {
+    const updated = await client.query<{ livekit_room: string }>(
+      `UPDATE matches SET status = 'complete', ended_at = now()
+        WHERE id = $1 AND status = 'playing' RETURNING livekit_room`,
+      [matchId],
+    );
+    if (!updated.rows[0]) return null;
+    if (early) {
+      await client.query(
+        `INSERT INTO challenge_events (match_id, participant_id, event_type, payload)
+         SELECT $1, p.id, 'match_ended_early', $3::jsonb
+           FROM match_participants p WHERE p.match_id = $1 AND p.user_id = $2`,
+        [matchId, early.userId, JSON.stringify({ reason: early.reason })],
+      );
+    }
+    return updated.rows[0].livekit_room;
+  });
+  if (!room) return false;
+  await closeLiveKitRoom(room).catch(console.error);
+  return true;
 }
 
 export async function getMatch(matchId: string, userId: string): Promise<MatchView> {
@@ -38,7 +74,14 @@ export async function getMatch(matchId: string, userId: string): Promise<MatchVi
             now() AS server_now,
             m.started_at, m.ended_at, p.seat,
             (SELECT count(*)::int FROM match_participants WHERE match_id = m.id) AS participant_count,
-            i.room_code, c.prompt AS challenge_prompt
+            i.room_code, c.prompt AS challenge_prompt,
+            (SELECT e.payload->>'reason' FROM challenge_events e
+              WHERE e.match_id = m.id AND e.event_type = 'match_ended_early'
+              ORDER BY e.id DESC LIMIT 1) AS end_reason,
+            (SELECT ep.seat::int FROM challenge_events e
+               JOIN match_participants ep ON ep.id = e.participant_id
+              WHERE e.match_id = m.id AND e.event_type = 'match_ended_early'
+              ORDER BY e.id DESC LIMIT 1) AS end_reason_seat
        FROM matches m
        JOIN match_participants p ON p.match_id = m.id AND p.user_id = $2
        JOIN languages l ON l.code = m.language_code

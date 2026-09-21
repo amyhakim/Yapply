@@ -7,6 +7,7 @@ import { api } from "@/lib/client-api";
 import { SpeechCapture } from "./SpeechCapture";
 import { LiveCall } from "./LiveCall";
 import { MatchScore } from "./MatchScore";
+import { PartnerWatcher } from "./PartnerWatcher";
 import { Sparkles } from 'lucide-react';
 
 type Match = {
@@ -14,7 +15,18 @@ type Match = {
   duration_secs: number; started_at: string | null; server_now: string; seat: number;
   ended_at: string | null;
   participant_count: number; room_code: string; challenge_prompt: string | null;
+  end_reason: "language_switch" | "silent_mic" | null; end_reason_seat: number | null;
 };
+
+// Why the match ended early, told from this player's point of view. The winner is decided by score.
+function endedEarlyMessage(match: Match): string | null {
+  if (!match.end_reason) return null;
+  const you = match.end_reason_seat === match.seat;
+  const cause = match.end_reason === "language_switch"
+    ? `${you ? "you" : "your partner"} spoke a different language than this match's`
+    : `${you ? "your" : "your partner's"} microphone wasn't picking up any sound`;
+  return `The match ended early because ${cause}. The winner is decided by score.`;
+}
 type Attempt = {
   id: string; mode: string; recognized_text: string | null;
   pron_score: string | null; accuracy: string | null; fluency: string | null;
@@ -30,6 +42,7 @@ export function MatchClient({ matchId }: { matchId: string }) {
   const [receivedPerf, setReceivedPerf] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [partnerInCall, setPartnerInCall] = useState(false);
   const handleCallError = useCallback((caught: Error) => setError(caught.message), []);
   const [checkingResults, setCheckingResults] = useState(false);
   const finishCurrentRef = useRef<(() => void) | null>(null);
@@ -91,12 +104,15 @@ export function MatchClient({ matchId }: { matchId: string }) {
     return () => clearInterval(poll);
   }, [match?.status, match?.ended_at, refreshResults]);
 
-  const updateStatus = async (action: "start" | "end") => {
+  const updateStatus = async (action: "start" | "end", reason?: "silent_mic") => {
     setBusy(true); setError(null);
     try {
       if (action === "end") finishCurrentRef.current?.();
       const data = await api<{ match: Match }>(`/api/matches/${matchId}/${action}`,
-        { method: "POST" });
+        reason ? {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason }),
+        } : { method: "POST" });
       setReceivedPerf(performance.now());
       setClock(performance.now());
       setMatch(data.match);
@@ -141,8 +157,13 @@ export function MatchClient({ matchId }: { matchId: string }) {
     <div className="challenge"><div className="challenge-icon"><Sparkles size={28}/></div><div className="challenge-copy"><div className="eyebrow">YOUR SPEAKING CHALLENGE</div><h2>{match.challenge_prompt ?? 'Tell your partner about your hometown.'}</h2><p>Practice the phrase together, then keep the conversation going.</p></div><span className="challenge-doodle" aria-hidden="true">✿</span></div>
     <div className="friend-actions">
     {match.status === "queued" && <p>Share the room code with a friend. The call opens while you wait.</p>}
-    {match.status === "matched" && match.seat === 1 &&
-      <button disabled={busy} onClick={() => void updateStatus("start")}>Start match</button>}
+    {match.status === "matched" && match.seat === 1 && <>
+      <button disabled={busy || !connection || !partnerInCall}
+        onClick={() => void updateStatus("start")}>Start match</button>
+      {!connection ? <p className="muted">Join the live call first.</p>
+        : !partnerInCall ? <p className="muted">Waiting for your partner to join the live call. The clock only starts once you are both in.</p>
+        : null}
+    </>}
     {match.status === "matched" && match.seat === 2 && <p>Waiting for the room creator to start.</p>}
     {match.status === "playing" && <button className="secondary" disabled={busy}
       onClick={() => void updateStatus("end")}>End match</button>}
@@ -155,6 +176,7 @@ export function MatchClient({ matchId }: { matchId: string }) {
     {connection && match.status !== "complete" &&
       <LiveKitRoom token={connection.token} serverUrl={connection.url} connect audio={false} video={false}
         onError={handleCallError} onDisconnected={handleDisconnected}>
+        <PartnerWatcher onChange={setPartnerInCall}/>
         <LiveCall onLeave={() => {
           finishCurrentRef.current?.();
           setConnection(null);
@@ -164,9 +186,11 @@ export function MatchClient({ matchId }: { matchId: string }) {
           <SpeechCapture matchId={matchId} startedAt={match.started_at}
             serverNow={match.server_now} receivedPerf={receivedPerf}
             prompt={match.challenge_prompt} onSaved={() => void refreshResults()}
+            onMicSilent={() => void updateStatus("end", "silent_mic")}
             finishCurrentRef={finishCurrentRef} />}
       </LiveKitRoom>}
-    {match.status === "complete" && <p className="notice">Match finished. Your pronunciation feedback is below.</p>}
+    {match.status === "complete" && <p className="notice">
+      {endedEarlyMessage(match) ?? "Match finished. Your pronunciation feedback is below."}</p>}
     </section>
     {match.status === "playing" &&
       <p className="muted">Your results and conversation score appear when the match ends.</p>}

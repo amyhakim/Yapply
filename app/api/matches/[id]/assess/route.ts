@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { assessPcmStream, assessWav, InvalidPcmStreamError } from "@/lib/azure";
 import { db, transaction } from "@/lib/db";
 import { ApiError, jsonError } from "@/lib/http";
-import { getMatch } from "@/lib/matches";
+import { isOtherLanguage, otherLocaleFor } from "@/lib/language-id";
+import { endMatch, getMatch } from "@/lib/matches";
 import { requireUser } from "@/lib/session";
 import { wavDurationMs } from "@/lib/wav";
 
@@ -62,6 +63,10 @@ export async function POST(request: NextRequest, context: Context) {
       }
     }
     const reference = mode === "scripted" ? match.challenge_prompt : null;
+    // Conversation clips are also checked for the wrong language. Reading a set phrase is not.
+    const otherLocale = mode === "unscripted" ? otherLocaleFor(match.azure_locale) : null;
+    const languageCandidates = otherLocale && match.azure_locale
+      ? [match.azure_locale, otherLocale] : undefined;
     const claim = await db().query(
       `INSERT INTO pronunciation_attempts
          (id, match_id, user_id, mode, locale, reference_text, at_ms, duration_ms)
@@ -74,7 +79,8 @@ export async function POST(request: NextRequest, context: Context) {
     let assessed;
     if (streaming) {
       try {
-        const streamed = await assessPcmStream(request.body!, match.azure_locale, reference);
+        const streamed = await assessPcmStream(
+          request.body!, match.azure_locale, reference, languageCandidates);
         assessed = streamed.assessment;
         durationMs = streamed.durationMs;
       } catch (error) {
@@ -82,7 +88,7 @@ export async function POST(request: NextRequest, context: Context) {
         throw error;
       }
     } else {
-      assessed = await assessWav(wav!, match.azure_locale, reference);
+      assessed = await assessWav(wav!, match.azure_locale, reference, languageCandidates);
     }
     await transaction(async (client) => {
       await client.query(
@@ -128,12 +134,25 @@ export async function POST(request: NextRequest, context: Context) {
         }
       }
     });
+    // Azure is confident this clip is in the other language: the match ends for both players and
+    // the winner is decided by score. A failure to end must not lose the assessment just stored.
+    let matchEnded: "language_switch" | null = null;
+    if (isOtherLanguage(assessed.language, otherLocale)) {
+      try {
+        if (await endMatch(matchId, { reason: "language_switch", userId: user.id })) {
+          matchEnded = "language_switch";
+        }
+      } catch (error) {
+        console.error("Could not end the match after a language switch", error);
+      }
+    }
     return NextResponse.json({
       id, mode, recognizedText: assessed.recognizedText,
       pronScore: assessed.pronScore, accuracy: assessed.accuracy,
       fluency: assessed.fluency, prosody: assessed.prosody,
       notableWords: assessed.words.filter((word) => word.score < 80 ||
         (word.errorType && word.errorType !== "None")),
+      matchEnded,
     });
   } catch (error) {
     if (claimedId) {

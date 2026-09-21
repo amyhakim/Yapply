@@ -43,6 +43,9 @@ export function MatchScore({ matchId, endedAt }: { matchId: string; endedAt: str
     {result?.status === 'not_finished' && <p>Your match has not finished yet.</p>}
     {result?.status === 'unavailable' && <p>There wasn’t enough analyzed speech to produce an overall score.</p>}
     {result?.status === 'ready' && result.score && <>
+      {result.score.matchResult && <h3 className={`match-outcome ${result.score.matchResult.outcome}`}>
+        {{ win: 'You won!', loss: 'You lost', tie: 'It’s a tie' }[result.score.matchResult.outcome]}
+        {' '}· {result.score.matchResult.yourScore} to {result.score.matchResult.opponentScore}</h3>}
       <div className="overall-score">{result.score.overall}<small>/ 100</small><span>+{result.score.xpEarned} XP</span></div>
       <dl className="score-dimensions">{Object.entries(result.score.dimensions).map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value ?? 'Not assessed'}</dd></div>)}</dl>
       {result.score.feedback.improve.length > 0 && <><h3>Things to try next time</h3><ul>{result.score.feedback.improve.map((item, index) => <li key={index}>{item.original && <span>{item.original} → </span>}{item.correction} {item.explanation}</li>)}</ul></>}
