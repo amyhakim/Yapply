@@ -17,6 +17,7 @@ type Match = {
 };
 type Attempt = {
   id: string; mode: string; recognized_text: string | null;
+  at_ms: number; duration_ms: number;
   pron_score: string | null; accuracy: string | null; fluency: string | null;
   prosody: string | null; status: string;
   notable_words: { word: string; phoneme: string | null; score: number; errorType: string | null }[];
@@ -168,13 +169,16 @@ export function MatchClient({ matchId }: { matchId: string }) {
       </LiveKitRoom>}
     {match.status === "complete" && <p className="notice">Match finished. Your pronunciation feedback is below.</p>}
     </section>
-    {match.status === "complete" && <MatchScore matchId={matchId} endedAt={match.ended_at}/>}
+    {match.status === "playing" &&
+      <p className="muted">Your results and conversation score appear when the match ends.</p>}
+    {match.status === "complete" && <>
+    <MatchScore matchId={matchId} endedAt={match.ended_at} prompt={match.challenge_prompt}
+      attempts={attempts}/>
     <section className="panel">
       <h2>Your assessment results</h2>
-      {attempts.length === 0 ? <p className="muted">{match.status === "complete"
-        ? checkingResults ? "No attempt saved yet. Checking for final pronunciation feedback…" :
-          "No pronunciation attempt was saved for this match. In your next match, turn on the microphone and check that the Pronunciation panel says Listening before you speak."
-        : "Results will appear after the Pronunciation panel starts listening and you speak."}</p> :
+      {attempts.length === 0 ? <p className="muted">{checkingResults
+        ? "No attempt saved yet. Checking for final pronunciation feedback…" :
+          "No pronunciation attempt was saved for this match. In your next match, turn on the microphone and check that the Pronunciation panel says Listening before you speak."}</p> :
         <div className="attempts">{attempts.map((attempt) =>
           <article className="attempt" key={attempt.id}>
             <div><span className="eyebrow">{attempt.mode}</span><strong>
@@ -190,6 +194,7 @@ export function MatchClient({ matchId }: { matchId: string }) {
           </article>)}
         </div>}
     </section>
+    </>}
     </main>
   </div>;
 }

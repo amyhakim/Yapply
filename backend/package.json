@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.22.0" },
+  "engines": {
+    "node": ">=22.22.0"
+  },
   "scripts": {
     "dev": "node --env-file-if-exists=.env --watch --import tsx src/main.ts",
     "start": "node --env-file-if-exists=.env --import tsx src/main.ts",
@@ -11,7 +13,7 @@
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.127.0",
+    "@google/genai": "^2.23.0",
     "pg": "^8.13.0",
     "zod": "^4.0.0"
   },
